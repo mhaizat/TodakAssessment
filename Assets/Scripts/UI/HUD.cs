@@ -24,22 +24,29 @@ public class HUD : MonoBehaviour
     {
         playerId = AuthenticationService.Instance.PlayerId;
 
-        statusText.text = "Connected.";
-        reconnectButton.gameObject.SetActive(false);
-        disconnectButton.gameObject.SetActive(true);
+        // Only show for clients (not host)
+        bool isClientOnly = NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer;
+        reconnectButton.gameObject.SetActive(false && isClientOnly);
+        disconnectButton.gameObject.SetActive(true && isClientOnly);
 
-        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
-        NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        statusText.text = isClientOnly ? "Connected." : "";
+
+        if (isClientOnly)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        }
     }
 
     private void OnDestroy()
     {
-        if (NetworkManager.Singleton != null)
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
         {
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
         }
     }
+
 
     // ------------------------------
     // UI BUTTON HANDLERS
