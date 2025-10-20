@@ -17,6 +17,7 @@ public class LobbyManager : NetworkBehaviour
         public string Name;
         public GameObject PlayerObject;
         public bool IsConnected;
+        public bool IsReady;
     }
 
     public static LobbyManager Instance;
@@ -29,6 +30,9 @@ public class LobbyManager : NetworkBehaviour
     [SerializeField][Range(2, 10)] private int MaxPlayers = 5;
 
     private const string gameplaySceneName = "Game";
+
+    // Tracks local client's ready state
+    private bool currentReadyState = false;
 
     private void Awake()
     {
@@ -60,16 +64,18 @@ public class LobbyManager : NetworkBehaviour
             OnRequestLobbySyncReceived
         );
 
-        // Register host
+        // Register host and mark as ready automatically
         string hostUniqueId = System.Guid.NewGuid().ToString();
         AddPlayerInternal(NetworkManager.Singleton.LocalClientId, hostUniqueId);
+
+        // Set host as ready
+        SetPlayerReady(NetworkManager.Singleton.LocalClientId, true);
 
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
 
         BroadcastLobbyUpdate();
     }
 
-    // 🔹 Handles client sync requests (when a new client joins mid-lobby)
     private void OnRequestLobbySyncReceived(ulong senderClientId, FastBufferReader reader)
     {
         if (!IsServer) return;
@@ -115,7 +121,6 @@ public class LobbyManager : NetworkBehaviour
 
             Debug.Log($"[LobbyManager] Player {uniqueId} reconnected/resumed (ClientId {clientId})");
 
-            // Restore player ownership
             if (existingPlayer.PlayerObject != null)
             {
                 var netObj = existingPlayer.PlayerObject.GetComponent<NetworkObject>();
@@ -153,7 +158,8 @@ public class LobbyManager : NetworkBehaviour
             ClientId = clientId,
             PlayerUniqueId = uniqueId,
             IsConnected = true,
-            PlayerObject = null
+            PlayerObject = null,
+            IsReady = false
         };
         playersByUniqueId[uniqueId] = pdata;
         clientIdToUniqueId[clientId] = uniqueId;
@@ -187,7 +193,6 @@ public class LobbyManager : NetworkBehaviour
         pdata.IsConnected = false;
         playersByUniqueId[uniqueId] = pdata;
 
-        // Optional: freeze character input
         if (pdata.PlayerObject != null)
         {
             var controller = pdata.PlayerObject.GetComponent<PlayerMovement>();
@@ -211,7 +216,8 @@ public class LobbyManager : NetworkBehaviour
             {
                 var pdata = playerList[i];
                 string status = pdata.IsConnected ? "Connected" : "Disconnected";
-                slotData.Add($"Player {i + 1} ({pdata.PlayerUniqueId}) [{status}]");
+                string ready = pdata.IsReady ? "Ready" : "Not Ready";
+                slotData.Add($"Player {i + 1} ({pdata.PlayerUniqueId}) [{status}, {ready}]");
             }
             else
             {
@@ -275,5 +281,97 @@ public class LobbyManager : NetworkBehaviour
                 }
             }
         }
+    }
+
+    // ---------------- Ready System ----------------
+
+    public void SetPlayerReady(ulong clientId, bool ready)
+    {
+        if (!clientIdToUniqueId.TryGetValue(clientId, out var uniqueId)) return;
+        if (!playersByUniqueId.TryGetValue(uniqueId, out var pdata)) return;
+
+        pdata.IsReady = ready;
+        playersByUniqueId[uniqueId] = pdata;
+
+        Debug.Log($"[LobbyManager] Player {uniqueId} ready state: {ready}");
+        BroadcastLobbyUpdate();
+    }
+
+    // Called when host presses Start Game
+    public void TryStartGame()
+    {
+        if (!IsServer) return;
+
+        if (!AllPlayersReady())
+        {
+            Debug.Log("[LobbyManager] Cannot start game. Not all players are ready.");
+            return;
+        }
+
+        Debug.Log("[LobbyManager] All players ready. Starting game...");
+        StartGame();
+    }
+
+    private bool AllPlayersReady()
+    {
+        int connectedCount = 0;
+        foreach (var pdata in playersByUniqueId.Values)
+        {
+            if (!pdata.IsConnected) continue;
+            connectedCount++;
+
+            if (!pdata.IsReady)
+                return false;
+        }
+
+        // Require at least 2 connected players
+        return connectedCount >= 2;
+    }
+
+
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestSetReadyServerRpc(ulong clientId, bool ready)
+    {
+        SetPlayerReady(clientId, ready);
+    }
+
+    public void OnReadyButtonPressed()
+    {
+        if (!NetworkManager.Singleton.IsClient) return;
+
+        bool newReadyState = !currentReadyState;
+        currentReadyState = newReadyState;
+
+        RequestSetReadyServerRpc(NetworkManager.Singleton.LocalClientId, newReadyState);
+    }
+
+    public bool AllConnectedPlayersReady()
+    {
+        foreach (var pdata in playersByUniqueId.Values)
+        {
+            if (pdata.IsConnected && !pdata.IsReady)
+                return false;
+        }
+        return true;
+    }
+
+    public bool CanStartGame()
+    {
+        if (!IsServer) return false;
+
+        // Must have at least 2 connected players
+        int connectedPlayers = 0;
+        foreach (var pdata in playersByUniqueId.Values)
+            if (pdata.IsConnected) connectedPlayers++;
+
+        if (connectedPlayers < 2)
+            return false;
+
+        // All connected players must be ready
+        foreach (var pdata in playersByUniqueId.Values)
+            if (pdata.IsConnected && !pdata.IsReady)
+                return false;
+
+        return true;
     }
 }

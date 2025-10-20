@@ -30,8 +30,11 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private List<TextMeshProUGUI> slotTexts;
     [SerializeField] private Button startButton;
     [SerializeField] private TextMeshProUGUI codeText;
+    [SerializeField] private Button readyButton;
 
     [SerializeField] private TextMeshProUGUI statusText;
+
+    private bool currentReadyState = false;
 
     private void Awake()
     {
@@ -46,32 +49,34 @@ public class LobbyUI : MonoBehaviour
         ShowPanel(menuPanel);
 
         startButton.gameObject.SetActive(false);
+        readyButton.gameObject.SetActive(false);
+    }
+
+    private IEnumerator Start()
+    {
+        // Wait until NetworkManager exists
+        yield return new WaitUntil(() => NetworkManager.Singleton != null);
+
+        // Wait until host or client actually starts
+        yield return new WaitUntil(() =>
+            NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsClient);
+
+        bool isHost = NetworkManager.Singleton.IsServer;
+        startButton.gameObject.SetActive(isHost);
+        readyButton.gameObject.SetActive(!isHost);
+
+        UpdateReadyButtonText();
+    }
+
+    private void OnDestroy()
+    {
+        LobbyManager.OnSlotsUpdated -= UpdateLobbySlots;
     }
 
     public void DisplayJoinCode(string code)
     {
         if (codeText != null)
             codeText.text = $"Join Code: {code}";
-    }
-
-    private IEnumerator Start()
-    {
-        //! Wait until NetworkManager exists
-        yield return new WaitUntil(() => NetworkManager.Singleton != null);
-
-        //! Wait until host or client actually starts
-        yield return new WaitUntil(() =>
-            NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsClient);
-
-        bool isHost = NetworkManager.Singleton.IsServer;
-        startButton.gameObject.SetActive(isHost);
-
-        Debug.Log($"[LobbyUI] Start button visible: {isHost}");
-    }
-
-    private void OnDestroy()
-    {
-        LobbyManager.OnSlotsUpdated -= UpdateLobbySlots;
     }
 
     public void OnJoinLobbyPanelPressed()
@@ -81,12 +86,11 @@ public class LobbyUI : MonoBehaviour
 
     public void OnExitGamePressed()
     {
-        #if UNITY_EDITOR
-             UnityEditor.EditorApplication.isPlaying = false;
-        #else
-                    // If running in build, quit application
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
                     Application.Quit();
-        #endif
+#endif
     }
 
     public void OnCancelJoinLobbyPressed()
@@ -102,8 +106,7 @@ public class LobbyUI : MonoBehaviour
             return;
         }
 
-        ShowStatus("Starting game...");
-        LobbyManager.Instance.StartGame();
+        LobbyManager.Instance.TryStartGame();
     }
 
     private void ShowPanel(GameObject panelToShow)
@@ -121,6 +124,7 @@ public class LobbyUI : MonoBehaviour
         joinLobbyButton.onClick.AddListener(() => _ = JoinGame());
         joinButton.onClick.AddListener(OnJoinLobbyPanelPressed);
         startButton.onClick.AddListener(OnStartGamePressed);
+        readyButton.onClick.AddListener(OnReadyButtonPressed);
         exitButton.onClick.AddListener(OnExitGamePressed);
         cancelButton.onClick.AddListener(OnCancelJoinLobbyPressed);
     }
@@ -148,7 +152,6 @@ public class LobbyUI : MonoBehaviour
         await multiplayerSetup.JoinRelay(code);
 
         codeText.text = $"Join Code: {code}";
-
         ShowPanel(lobbyPanel);
         ShowStatus("Joined successfully!");
     }
@@ -163,7 +166,24 @@ public class LobbyUI : MonoBehaviour
     {
         for (int i = 0; i < slotTexts.Count; i++)
             slotTexts[i].text = i < players.Count ? players[i] : "Empty Slot";
+    }
 
-        //Debug.Log($"[LobbyUI] Updating slots for Client {NetworkManager.Singleton.LocalClientId}");
+    // ---------------- Ready Button ----------------
+
+    private void OnReadyButtonPressed()
+    {
+        if (!NetworkManager.Singleton.IsClient) return;
+
+        currentReadyState = !currentReadyState;
+        LobbyManager.Instance.OnReadyButtonPressed();
+        UpdateReadyButtonText();
+    }
+
+    private void UpdateReadyButtonText()
+    {
+        if (readyButton != null)
+        {
+            readyButton.GetComponentInChildren<TextMeshProUGUI>().text = currentReadyState ? "Unready" : "Ready";
+        }
     }
 }
