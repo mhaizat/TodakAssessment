@@ -6,7 +6,8 @@ public class CameraManager : MonoBehaviour
 {
     public static CameraManager Instance;
 
-    private readonly List<CinemachineCamera> cameras = new List<CinemachineCamera>();
+    // Store both the camera reference and who owns it
+    private readonly Dictionary<ulong, CinemachineCamera> ownedCameras = new Dictionary<ulong, CinemachineCamera>();
 
     private void Awake()
     {
@@ -20,53 +21,111 @@ public class CameraManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    /// <summary>Registers a camera if it hasn't been registered yet.</summary>
-    public void RegisterCamera(CinemachineCamera cam)
+    /// <summary>
+    /// Registers a camera and associates it with a specific client ID.
+    /// Automatically unregisters any existing camera for that client.
+    /// </summary>
+    public void RegisterCamera(CinemachineCamera cam, ulong ownerClientId)
     {
-        if (cam == null) return;
-
-        if (!cameras.Contains(cam))
+        if (cam == null)
         {
-            cameras.Add(cam);
-            Debug.Log($"[CameraManager] Registered camera: {cam.name} (Parent: {cam.transform.root.name})");
+            Debug.LogWarning("[CameraManager] Tried to register a null camera.");
+            return;
         }
+
+        // Remove old camera owned by same client (if any)
+        if (ownedCameras.TryGetValue(ownerClientId, out var existingCam))
+        {
+            if (existingCam != null && existingCam != cam)
+            {
+                Debug.Log($"[CameraManager] Replacing old camera ({existingCam.name}) for client {ownerClientId}");
+                UnregisterCamera(existingCam);
+            }
+        }
+
+        ownedCameras[ownerClientId] = cam;
+        Debug.Log($"[CameraManager] Registered camera '{cam.name}' for client {ownerClientId}");
     }
 
-    /// <summary>Unregisters a camera safely.</summary>
+    /// <summary>
+    /// Unregisters a specific camera safely.
+    /// </summary>
     public void UnregisterCamera(CinemachineCamera cam)
     {
         if (cam == null) return;
 
-        if (cameras.Contains(cam))
+        ulong? foundKey = null;
+
+        foreach (var kvp in ownedCameras)
         {
-            cameras.Remove(cam);
-            Debug.Log($"[CameraManager] Unregistered camera: {cam.name}");
+            if (kvp.Value == cam)
+            {
+                foundKey = kvp.Key;
+                break;
+            }
+        }
+
+        if (foundKey.HasValue)
+        {
+            ownedCameras.Remove(foundKey.Value);
+            Debug.Log($"[CameraManager] Unregistered camera '{cam.name}' (Client {foundKey.Value})");
         }
     }
 
-    /// <summary>Returns a camera by index, or null if invalid.</summary>
-    public CinemachineCamera GetCamera(int index)
+    /// <summary>
+    /// Unregisters all cameras owned by a specific client.
+    /// </summary>
+    public void UnregisterAllOwnedBy(ulong ownerClientId)
     {
-        if (index < 0 || index >= cameras.Count) return null;
-        return cameras[index];
+        if (ownedCameras.ContainsKey(ownerClientId))
+        {
+            var cam = ownedCameras[ownerClientId];
+            ownedCameras.Remove(ownerClientId);
+
+            if (cam != null)
+                Debug.Log($"[CameraManager] Removed all cameras owned by client {ownerClientId} ({cam.name})");
+        }
     }
 
-    /// <summary>Returns the first camera currently active in the scene (usually local player camera).</summary>
-    public CinemachineCamera GetLocalPlayerCamera()
+    /// <summary>
+    /// Returns the active camera owned by the given client, or null if none.
+    /// </summary>
+    public CinemachineCamera GetCameraByOwner(ulong ownerClientId)
     {
-        return cameras.Find(cam => cam.gameObject.activeInHierarchy);
+        if (ownedCameras.TryGetValue(ownerClientId, out var cam))
+            return cam;
+
+        return null;
     }
 
-    /// <summary>Returns all registered cameras.</summary>
-    public List<CinemachineCamera> GetAllCameras()
+    /// <summary>
+    /// Returns the first camera currently active in the scene (useful for debugging).
+    /// </summary>
+    public CinemachineCamera GetActiveCamera()
     {
-        return cameras;
+        foreach (var cam in ownedCameras.Values)
+        {
+            if (cam != null && cam.gameObject.activeInHierarchy)
+                return cam;
+        }
+
+        return null;
     }
 
-    /// <summary>Clear all cameras safely (optional, for scene unload).</summary>
+    /// <summary>
+    /// Clears all registered cameras (useful for full scene reloads or shutdown).
+    /// </summary>
     public void ClearAllCameras()
     {
-        cameras.Clear();
+        ownedCameras.Clear();
         Debug.Log("[CameraManager] Cleared all registered cameras.");
+    }
+
+    /// <summary>
+    /// Returns all currently registered cameras for debugging.
+    /// </summary>
+    public List<CinemachineCamera> GetAllCameras()
+    {
+        return new List<CinemachineCamera>(ownedCameras.Values);
     }
 }

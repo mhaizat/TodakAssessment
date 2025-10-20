@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using Unity.Netcode;
 
 public class ClientHandshake : MonoBehaviour
@@ -8,6 +8,10 @@ public class ClientHandshake : MonoBehaviour
         // Only run this on clients, not the host
         if (NetworkManager.Singleton.IsHost) return;
 
+        // Always try immediately (in case we're already connected)
+        TrySendJoinImmediately();
+
+        // Then subscribe for future cases
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
     }
 
@@ -19,13 +23,23 @@ public class ClientHandshake : MonoBehaviour
 
     private void OnClientConnected(ulong clientId)
     {
-        // Only send the join message from the local client
         if (clientId != NetworkManager.Singleton.LocalClientId) return;
 
         SendPlayerJoin();
 
-        // Unsubscribe to prevent duplicates
+        // Unsubscribe to prevent duplicate sends
         NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+    }
+
+    private void TrySendJoinImmediately()
+    {
+        if (NetworkManager.Singleton.IsClient &&
+            NetworkManager.Singleton.IsConnectedClient &&
+            !NetworkManager.Singleton.IsHost)
+        {
+            Debug.Log("[ClientHandshake] Detected already-connected client. Sending join immediately...");
+            SendPlayerJoin();
+        }
     }
 
     private void SendPlayerJoin()
@@ -33,13 +47,11 @@ public class ClientHandshake : MonoBehaviour
         if (!NetworkManager.Singleton.IsClient) return;
 
         string persistentId = PlayerIdHelper.GetOrCreatePlayerId();
-
         var msg = new PlayerJoinMessage(persistentId);
 
-        // Correct way: serialize into a FastBufferWriter then send the writer
         using (var writer = new Unity.Netcode.FastBufferWriter(128, Unity.Collections.Allocator.Temp))
         {
-            writer.WriteValueSafe(msg); // <-- correct
+            writer.WriteValueSafe(msg);
             NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(
                 "PlayerJoin",
                 NetworkManager.ServerClientId,
@@ -47,7 +59,6 @@ public class ClientHandshake : MonoBehaviour
             );
         }
 
-        Debug.Log($"[ClientHandshake] Sent PlayerJoinMessage with PersistentID: {persistentId}");
+        Debug.Log($"[ClientHandshake] ✅ Sent PlayerJoinMessage with PersistentID: {persistentId}");
     }
-
 }

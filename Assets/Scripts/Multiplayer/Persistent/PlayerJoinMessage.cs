@@ -1,9 +1,8 @@
-using Unity.Collections;
 using Unity.Netcode;
 
 public struct PlayerJoinMessage : INetworkSerializable
 {
-    public FixedString128Bytes PlayerId; // use this exact name everywhere
+    public string PlayerId; // keep same name as before (compatibility)
 
     public PlayerJoinMessage(string id)
     {

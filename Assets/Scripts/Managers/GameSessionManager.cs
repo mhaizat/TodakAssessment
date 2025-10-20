@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -21,14 +21,17 @@ public class GameSessionManager : NetworkBehaviour
 
         instance = this;
 
-        // Find all spawn points in the scene
-        GameObject[] spawnObjs = GameObject.FindGameObjectsWithTag("SpawnPoint");
-        foreach (var obj in spawnObjs)
+        foreach (var obj in GameObject.FindGameObjectsWithTag("SpawnPoint"))
             spawnPoints.Add(obj.transform);
 
         if (IsServer)
         {
+            Debug.Log("[GameSessionManager] OnNetworkSpawn - Spawning all players");
             SpawnAllPlayers();
+        }
+        else
+        {
+            Debug.Log("[GameSessionManager] OnNetworkSpawn - Waiting for server to spawn player object");
         }
     }
 
@@ -41,11 +44,12 @@ public class GameSessionManager : NetworkBehaviour
             return;
         }
 
-        int spawnIndex = 0;
+        // Make a copy of dictionary to avoid modification during iteration
+        var playersSnapshot = new List<LobbyManager.PlayerData>(LobbyManager.Instance.playersByUniqueId.Values);
 
-        foreach (var kvp in LobbyManager.Instance.playersByUniqueId)
+        int spawnIndex = 0;
+        foreach (var pdata in playersSnapshot)
         {
-            var pdata = kvp.Value;
             SpawnOrRestorePlayer(pdata, playerPrefab, spawnIndex);
             spawnIndex++;
         }
@@ -55,50 +59,60 @@ public class GameSessionManager : NetworkBehaviour
     {
         if (!IsServer) return;
 
-        if (pdata.PlayerObject != null)
+        Debug.Log($"[GameSessionManager] === SpawnOrRestorePlayer() called for UniqueId={pdata.PlayerUniqueId}, ClientId={pdata.ClientId}, IsConnected={pdata.IsConnected}");
+
+        // 1️⃣ Skip duplicates
+        if (pdata.PlayerObject != null && pdata.PlayerObject.TryGetComponent(out NetworkObject existingNetObj))
         {
-            // Reactivate and restore ownership
-            pdata.PlayerObject.SetActive(true);
-            var netObj = pdata.PlayerObject.GetComponent<NetworkObject>();
-
-            // Only transfer ownership if this is NOT the host
-            if (pdata.ClientId != NetworkManager.Singleton.LocalClientId)
+            if (existingNetObj.IsSpawned)
             {
-                if (netObj.OwnerClientId != pdata.ClientId)
-                    netObj.ChangeOwnership(pdata.ClientId);
-            }
+                Debug.Log($"[GameSessionManager] Player {pdata.PlayerUniqueId} already has a spawned object. Skipping duplicate spawn.");
 
-            return;
+                // Restore ownership if reconnecting
+                if (pdata.IsConnected && existingNetObj.OwnerClientId != pdata.ClientId)
+                {
+                    existingNetObj.ChangeOwnership(pdata.ClientId);
+                    Debug.Log($"[GameSessionManager] Ownership reassigned to {pdata.ClientId}");
+                }
+
+                var move = pdata.PlayerObject.GetComponent<PlayerMovement>();
+                if (move != null) move.enabled = pdata.IsConnected;
+                return;
+            }
         }
 
-        // Load prefab if not provided
         if (prefab == null)
             prefab = Resources.Load<GameObject>(PlayerPrefabPath);
+
         if (prefab == null)
         {
-            Debug.LogError($"[GameSessionManager] Could not find {PlayerPrefabPath} in Resources.");
+            Debug.LogError($"[GameSessionManager] Missing prefab at path {PlayerPrefabPath}");
             return;
         }
 
-        // Select spawn point
         Transform spawnTransform = spawnPoints.Count > 0 ? spawnPoints[spawnIndex % spawnPoints.Count] : null;
-        Vector3 pos = spawnTransform != null ? spawnTransform.position : Vector3.zero;
-        Quaternion rot = spawnTransform != null ? spawnTransform.rotation : Quaternion.identity;
+        Vector3 pos = spawnTransform ? spawnTransform.position : Vector3.zero;
+        Quaternion rot = spawnTransform ? spawnTransform.rotation : Quaternion.identity;
 
-        // Instantiate player object
         GameObject playerObj = Instantiate(prefab, pos, rot);
-        var netObjComp = playerObj.GetComponent<NetworkObject>();
-        if (netObjComp == null)
+        var netObj = playerObj.GetComponent<NetworkObject>();
+
+        if (pdata.IsConnected)
         {
-            Debug.LogError("[GameSessionManager] Player prefab is missing NetworkObject!");
-            Destroy(playerObj);
-            return;
+            netObj.SpawnAsPlayerObject(pdata.ClientId);
+            Debug.Log($"[GameSessionManager] Spawned player for ClientId={pdata.ClientId} (connected)");
+        }
+        else
+        {
+            netObj.Spawn();
+            Debug.Log($"[GameSessionManager] Spawned placeholder for disconnected ClientId={pdata.ClientId}");
         }
 
-        // Spawn as player object
-        netObjComp.SpawnAsPlayerObject(pdata.ClientId);
-
-        // Save reference for reconnects
         pdata.PlayerObject = playerObj;
+        LobbyManager.Instance.playersByUniqueId[pdata.PlayerUniqueId] = pdata;
+
+        var controller = playerObj.GetComponent<PlayerMovement>();
+        if (controller != null)
+            controller.enabled = pdata.IsConnected;
     }
 }

@@ -3,30 +3,47 @@ using System;
 
 public static class PlayerIdHelper
 {
-    private const string PersistentIdKey = "PersistentPlayerId";
+    private const string PlayerIdKey = "PersistentPlayerId";
 
+    /// <summary>
+    /// Returns a saved UniqueId if it exists, or generates a new one.
+    /// Editor-only: Uses a temporary per-instance suffix to avoid collisions in multiple Editor clients.
+    /// </summary>
     public static string GetOrCreatePlayerId()
     {
-        if (PlayerPrefs.HasKey(PersistentIdKey))
-        {
-            string existingId = PlayerPrefs.GetString(PersistentIdKey);
-            Debug.Log($"[PlayerIdHelper] Using stored persistent ID: {existingId}");
-            return existingId;
-        }
+        string key = PlayerIdKey;
+
+#if UNITY_EDITOR
+        // Use a temporary per-editor-instance suffix
+        key += "_" + System.Diagnostics.Process.GetCurrentProcess().Id;
+#endif
+
+        if (PlayerPrefs.HasKey(key))
+            return PlayerPrefs.GetString(key);
 
         string newId = Guid.NewGuid().ToString();
-        PlayerPrefs.SetString(PersistentIdKey, newId);
+        PlayerPrefs.SetString(key, newId);
         PlayerPrefs.Save();
-        Debug.Log($"[PlayerIdHelper] Generated and stored new persistent ID: {newId}");
+
+        Debug.Log("[PlayerIdHelper] Using Persistent ID: " + newId);
         return newId;
     }
 
-    public static void ClearStoredPlayerId()
+    /// <summary>
+    /// Deletes the saved UniqueId (useful for debugging)
+    /// </summary>
+    public static void ResetPlayerId()
     {
-        if (PlayerPrefs.HasKey(PersistentIdKey))
+#if UNITY_EDITOR
+        string key = PlayerIdKey + "_" + System.Diagnostics.Process.GetCurrentProcess().Id;
+#else
+        string key = PlayerIdKey;
+#endif
+        if (PlayerPrefs.HasKey(key))
         {
-            PlayerPrefs.DeleteKey(PersistentIdKey);
-            Debug.Log("[PlayerIdHelper] Cleared stored player ID.");
+            PlayerPrefs.DeleteKey(key);
+            PlayerPrefs.Save();
+            Debug.Log("[PlayerIdHelper] Player ID has been reset.");
         }
     }
 }
