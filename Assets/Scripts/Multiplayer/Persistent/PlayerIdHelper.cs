@@ -1,13 +1,17 @@
 using UnityEngine;
 using System;
 
+/// <summary>
+/// Utility for generating and retrieving a persistent unique player ID.
+/// Supports editor-specific temporary IDs to avoid collisions in multiple editor instances.
+/// </summary>
 public static class PlayerIdHelper
 {
     private const string PlayerIdKey = "PersistentPlayerId";
 
     /// <summary>
-    /// Returns a saved UniqueId if it exists, or generates a new one.
-    /// Editor-only: Uses a temporary per-instance suffix to avoid collisions in multiple Editor clients.
+    /// Returns the saved UniqueId if it exists, or generates a new one.
+    /// Editor-only: Uses a temporary per-instance suffix to avoid collisions in multiple editor clients.
     /// </summary>
     public static string GetOrCreatePlayerId()
     {
@@ -30,7 +34,7 @@ public static class PlayerIdHelper
     }
 
     /// <summary>
-    /// Deletes the saved UniqueId (useful for debugging)
+    /// Deletes the saved UniqueId (useful for debugging).
     /// </summary>
     public static void ResetPlayerId()
     {

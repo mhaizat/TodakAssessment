@@ -3,24 +3,10 @@ using UnityEngine;
 
 public class ReplayManager : MonoBehaviour
 {
+    // -------------------------
+    // SINGLETON
+    // -------------------------
     public static ReplayManager Instance { get; private set; }
-
-    [Header("Ghost Settings")]
-    [SerializeField] private GameObject ghostPrefab;
-
-    private bool isRecording = false;
-    private bool isPlayingBack = false;
-    private bool isPaused = false;
-
-    private readonly List<ReplayFrame> frames = new();
-    private readonly List<GameObject> ghostInstances = new();
-    private readonly Dictionary<string, GameObject> ghostMap = new();
-
-    private float playbackTime = 0f;
-    private float startTime = 0f;
-    private float playbackSpeed = 1f;
-
-    public bool IsPlaying => isPlayingBack && !isPaused;
 
     private void Awake()
     {
@@ -29,10 +15,63 @@ public class ReplayManager : MonoBehaviour
             Destroy(gameObject);
             return;
         }
-
         Instance = this;
     }
 
+    // -------------------------
+    // SETTINGS & PREFABS
+    // -------------------------
+    [Header("Ghost Settings")]
+    [SerializeField] private GameObject ghostPrefab;
+
+    // -------------------------
+    // STATE
+    // -------------------------
+    private bool isRecording = false;
+    private bool isPlayingBack = false;
+    private bool isPaused = false;
+    private float playbackTime = 0f;
+    private float startTime = 0f;
+    private float playbackSpeed = 1f;
+
+    public bool IsPlaying => isPlayingBack && !isPaused;
+
+    // -------------------------
+    // DATA STRUCTURES
+    // -------------------------
+    private readonly List<ReplayFrame> frames = new();
+    private readonly List<GameObject> ghostInstances = new();
+    private readonly Dictionary<string, GameObject> ghostMap = new();
+
+    private class ReplayFrame
+    {
+        public readonly float timestamp;
+        public readonly List<TransformSnapshot> snapshots;
+
+        public ReplayFrame(float timestamp, List<TransformSnapshot> snapshots)
+        {
+            this.timestamp = timestamp;
+            this.snapshots = snapshots;
+        }
+    }
+
+    private class TransformSnapshot
+    {
+        public readonly string playerId;
+        public readonly Vector3 position;
+        public readonly Quaternion rotation;
+
+        public TransformSnapshot(string id, Transform t)
+        {
+            playerId = id;
+            position = t.position;
+            rotation = t.rotation;
+        }
+    }
+
+    // -------------------------
+    // UNITY LIFECYCLE
+    // -------------------------
     private void Update()
     {
         if (isRecording)
@@ -41,24 +80,9 @@ public class ReplayManager : MonoBehaviour
             PlaybackUpdate();
     }
 
-    // ------------------------------------------------------------
+    // -------------------------
     // RECORDING
-    // ------------------------------------------------------------
-    private void RecordAllPlayers()
-    {
-        var players = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
-        List<TransformSnapshot> snapshots = new();
-
-        foreach (var player in players)
-        {
-            string playerId = player.name;
-            snapshots.Add(new TransformSnapshot(playerId, player.transform));
-        }
-
-        float timestamp = Time.time - startTime;
-        frames.Add(new ReplayFrame(timestamp, snapshots));
-    }
-
+    // -------------------------
     public void StartRecording()
     {
         isRecording = true;
@@ -66,7 +90,6 @@ public class ReplayManager : MonoBehaviour
         isPaused = false;
         frames.Clear();
         startTime = Time.time;
-
         Debug.Log("[ReplayManager] Recording started.");
     }
 
@@ -76,9 +99,21 @@ public class ReplayManager : MonoBehaviour
         Debug.Log($"[ReplayManager] Recording stopped. Total frames: {frames.Count}");
     }
 
-    // ------------------------------------------------------------
+    private void RecordAllPlayers()
+    {
+        var players = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+        List<TransformSnapshot> snapshots = new();
+
+        foreach (var player in players)
+            snapshots.Add(new TransformSnapshot(player.name, player.transform));
+
+        float timestamp = Time.time - startTime;
+        frames.Add(new ReplayFrame(timestamp, snapshots));
+    }
+
+    // -------------------------
     // PLAYBACK
-    // ------------------------------------------------------------
+    // -------------------------
     public void StartPlayback()
     {
         if (frames.Count == 0)
@@ -93,7 +128,6 @@ public class ReplayManager : MonoBehaviour
         playbackTime = 0f;
 
         SpawnGhosts();
-
         Debug.Log("[ReplayManager] Ghost playback started.");
     }
 
@@ -104,14 +138,12 @@ public class ReplayManager : MonoBehaviour
         isPlayingBack = false;
         isPaused = false;
         ClearGhosts();
-
         Debug.Log("[ReplayManager] Playback stopped and ghosts cleared.");
     }
 
     public void TogglePause()
     {
         if (!isPlayingBack) return;
-
         isPaused = !isPaused;
         Debug.Log(isPaused ? "[ReplayManager] Paused playback." : "[ReplayManager] Resumed playback.");
     }
@@ -149,9 +181,9 @@ public class ReplayManager : MonoBehaviour
         }
     }
 
-    // ------------------------------------------------------------
+    // -------------------------
     // GHOST HANDLING
-    // ------------------------------------------------------------
+    // -------------------------
     private void SpawnGhosts()
     {
         ClearGhosts();
@@ -163,11 +195,9 @@ public class ReplayManager : MonoBehaviour
             var ghost = Instantiate(ghostPrefab, player.transform.position, player.transform.rotation);
             ghost.name = $"Ghost_{player.name}";
 
-            Renderer r = ghost.GetComponentInChildren<Renderer>();
+            var r = ghost.GetComponentInChildren<Renderer>();
             if (r != null)
-            {
-                r.material.color = new Color(0f, 1f, 1f, 0.5f); // cyan transparent
-            }
+                r.material.color = new Color(0f, 1f, 1f, 0.5f);
 
             ghostInstances.Add(ghost);
             ghostMap[player.name] = ghost;
@@ -177,20 +207,14 @@ public class ReplayManager : MonoBehaviour
     private void ClearGhosts()
     {
         foreach (var g in ghostInstances)
-        {
             if (g != null) Destroy(g);
-        }
         ghostInstances.Clear();
     }
 
-    // ------------------------------------------------------------
-    // PLAYBACK CONTROLS
-    // ------------------------------------------------------------
-    public void SetPlaybackSpeed(float newSpeed)
-    {
-        playbackSpeed = Mathf.Clamp(newSpeed, 0.1f, 5f);
-        Debug.Log($"[ReplayManager] Playback speed set to {playbackSpeed}x");
-    }
+    // -------------------------
+    // PLAYBACK CONTROLS / UTILITIES
+    // -------------------------
+    public void SetPlaybackSpeed(float newSpeed) => playbackSpeed = Mathf.Clamp(newSpeed, 0.1f, 5f);
 
     public void Rewind(float seconds)
     {
@@ -214,32 +238,5 @@ public class ReplayManager : MonoBehaviour
     {
         if (frames.Count == 0) return;
         playbackTime = Mathf.Lerp(0f, frames[^1].timestamp, normalizedValue);
-    }
-
-    // ------------------------------------------------------------
-    // DATA STRUCTURES
-    // ------------------------------------------------------------
-    private class ReplayFrame
-    {
-        public readonly float timestamp;
-        public readonly List<TransformSnapshot> snapshots;
-        public ReplayFrame(float timestamp, List<TransformSnapshot> snapshots)
-        {
-            this.timestamp = timestamp;
-            this.snapshots = snapshots;
-        }
-    }
-
-    private class TransformSnapshot
-    {
-        public readonly string playerId;
-        public readonly Vector3 position;
-        public readonly Quaternion rotation;
-        public TransformSnapshot(string id, Transform t)
-        {
-            playerId = id;
-            position = t.position;
-            rotation = t.rotation;
-        }
     }
 }

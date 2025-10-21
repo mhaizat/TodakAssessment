@@ -1,25 +1,33 @@
 using UnityEngine;
 using System.Collections;
+using Unity.Services.Authentication;
 
 public class SpectatorCanvasController : MonoBehaviour
 {
+    [Header("UI References")]
     [SerializeField] private Canvas spectatorCanvas;
 
+    // --------------------
+    // UNITY LIFECYCLE
+    // --------------------
     private void Start()
     {
         if (spectatorCanvas == null) return;
 
-        StartCoroutine(EnableIfSpectator());
+        StartCoroutine(EnableCanvasIfSpectator());
     }
 
-    private IEnumerator EnableIfSpectator()
+    // --------------------
+    // COROUTINES
+    // --------------------
+    private IEnumerator EnableCanvasIfSpectator()
     {
-        // Wait until LobbyManager exists
+        // Wait until LobbyManager exists and has player data
         while (LobbyManager.Instance == null || LobbyManager.Instance.playersByUniqueId == null)
             yield return null;
 
         // Wait until local player data is available
-        string playerId = Unity.Services.Authentication.AuthenticationService.Instance.PlayerId;
+        string playerId = AuthenticationService.Instance.PlayerId;
         while (!LobbyManager.Instance.playersByUniqueId.ContainsKey(playerId))
             yield return null;
 

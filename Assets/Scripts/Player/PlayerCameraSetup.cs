@@ -4,14 +4,25 @@ using UnityEngine.SceneManagement;
 using Unity.Cinemachine;
 using System.Collections;
 
+/// <summary>
+/// Handles local player camera activation and Cinemachine setup.
+/// Ensures only the local player's camera is active and properly configured.
+/// </summary>
 public class PlayerCameraSetup : NetworkBehaviour
 {
-    [SerializeField] private GameObject playerCameraObj; // Child camera in prefab
-    [SerializeField] private Transform cameraTarget;
+    [Header("References")]
+    [SerializeField] private GameObject playerCameraObj; // Child camera object in prefab
+    [SerializeField] private Transform cameraTarget;     // Transform to follow/look at
 
+    // -------------------------
+    // STATE FLAGS
+    // -------------------------
     private bool isCameraActive = false;
-    private bool hasActivatedCamera = false; // 🧩 prevents double InitCameraDelayed
+    private bool hasActivatedCamera = false; // Prevents multiple InitCameraDelayed calls
 
+    // -------------------------
+    // UNITY LIFECYCLE
+    // -------------------------
     private void Awake()
     {
         if (playerCameraObj == null)
@@ -26,8 +37,7 @@ public class PlayerCameraSetup : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (!IsLocalPlayer)
-            return;
+        if (!IsLocalPlayer) return;
 
         SceneManager.sceneLoaded += OnSceneLoaded;
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
@@ -36,6 +46,34 @@ public class PlayerCameraSetup : NetworkBehaviour
         StartCoroutine(InitCameraDelayed());
     }
 
+    public override void OnNetworkDespawn()
+    {
+        UnregisterCamera();
+
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+
+        if (NetworkManager.Singleton != null)
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+
+        isCameraActive = false;
+        hasActivatedCamera = false;
+    }
+
+    public override void OnGainedOwnership()
+    {
+        base.OnGainedOwnership();
+
+        if (IsLocalPlayer)
+        {
+            Debug.Log($"[PlayerCameraSetup] 🎥 Gained ownership for client {OwnerClientId}, initializing camera...");
+            StopAllCoroutines();
+            StartCoroutine(InitCameraDelayed());
+        }
+    }
+
+    // -------------------------
+    // NETWORK & SCENE CALLBACKS
+    // -------------------------
     private void OnClientConnected(ulong clientId)
     {
         if (!IsLocalPlayer) return;
@@ -57,13 +95,15 @@ public class PlayerCameraSetup : NetworkBehaviour
         StartCoroutine(InitCameraDelayed());
     }
 
+    // -------------------------
+    // CAMERA ACTIVATION
+    // -------------------------
     private IEnumerator InitCameraDelayed()
     {
-        // 🧩 Only run once per reconnect/session
         if (hasActivatedCamera)
             yield break;
 
-        // Wait a few frames for spawn/ownership sync
+        // Wait a few frames for ownership and spawn synchronization
         yield return null;
         yield return null;
         yield return new WaitForSeconds(0.1f);
@@ -95,70 +135,18 @@ public class PlayerCameraSetup : NetworkBehaviour
             return;
         }
 
-        if (isCameraActive)
-            return;
+        if (isCameraActive) return;
 
         isCameraActive = true;
         playerCameraObj.SetActive(true);
 
-        // 🎧 Audio Listener
-        var listener = playerCameraObj.GetComponent<AudioListener>();
-        if (listener != null)
-            listener.enabled = true;
-
-        // 🧠 Disable other CinemachineBrains (host leftovers)
-        var existingBrains = FindObjectsByType<Unity.Cinemachine.CinemachineBrain>(FindObjectsSortMode.None);
-
-        foreach (var b in existingBrains)
-        {
-            if (b.isActiveAndEnabled)
-            {
-                b.enabled = false;
-                Debug.Log($"[PlayerCameraSetup] ❌ Disabled old CinemachineBrain on {b.gameObject.name}");
-            }
-        }
-
-        // ✅ Ensure a CinemachineBrain on our local camera
-        var cam = playerCameraObj.GetComponent<Camera>();
-        if (cam != null)
-        {
-            var brain = cam.GetComponent<Unity.Cinemachine.CinemachineBrain>();
-            if (brain == null)
-            {
-                brain = cam.gameObject.AddComponent<Unity.Cinemachine.CinemachineBrain>();
-                Debug.Log("[PlayerCameraSetup] 🧠 Added CinemachineBrain to PlayerCamera");
-            }
-
-            cam.enabled = false;
-            cam.enabled = true;
-            cam.gameObject.tag = "MainCamera";
-            brain.enabled = true;
-
-            Debug.Log($"[PlayerCameraSetup] ✅ Local CinemachineBrain activated for {cam.name}");
-        }
-        else
-        {
-            Debug.LogWarning("[PlayerCameraSetup] ⚠️ No Camera component found on PlayerCameraObj");
-        }
-
-        // 🎯 Cinemachine virtual camera setup
-        var cineCam = playerCameraObj.GetComponent<CinemachineCamera>();
-        if (cineCam != null)
-        {
-            cineCam.Follow = cameraTarget;
-            cineCam.LookAt = cameraTarget;
-        }
-
-        // 📋 CameraManager registration
-        if (CameraManager.Instance != null && cineCam != null)
-        {
-            CameraManager.Instance.UnregisterAllOwnedBy(OwnerClientId);
-            CameraManager.Instance.RegisterCamera(cineCam, OwnerClientId);
-        }
+        SetupAudioListener();
+        DisableOtherCinemachineBrains();
+        SetupCinemachineBrain();
+        SetupCinemachineTarget();
+        RegisterCameraWithManager();
 
         Debug.Log($"[PlayerCameraSetup] ✅ Local camera fully activated for client {OwnerClientId}");
-        Debug.Log($"[PlayerCameraSetup] MainCamera: {Camera.main?.name ?? "null"}");
-        Debug.Log($"[PlayerCameraSetup] ActiveCineBrain: {FindFirstObjectByType<Unity.Cinemachine.CinemachineBrain>()?.gameObject.name ?? "none"}");
     }
 
     private IEnumerator ActivateAfterRootActive()
@@ -169,7 +157,68 @@ public class PlayerCameraSetup : NetworkBehaviour
         ActivateLocalCamera();
     }
 
-    public override void OnNetworkDespawn()
+    // -------------------------
+    // CAMERA UTILITY METHODS
+    // -------------------------
+    private void SetupAudioListener()
+    {
+        var listener = playerCameraObj.GetComponent<AudioListener>();
+        if (listener != null)
+            listener.enabled = true;
+    }
+
+    private void DisableOtherCinemachineBrains()
+    {
+        var existingBrains = FindObjectsByType<CinemachineBrain>(FindObjectsSortMode.None);
+        foreach (var b in existingBrains)
+        {
+            if (b.isActiveAndEnabled)
+            {
+                b.enabled = false;
+                Debug.Log($"[PlayerCameraSetup] ❌ Disabled old CinemachineBrain on {b.gameObject.name}");
+            }
+        }
+    }
+
+    private void SetupCinemachineBrain()
+    {
+        var cam = playerCameraObj.GetComponent<Camera>();
+        if (cam == null)
+        {
+            Debug.LogWarning("[PlayerCameraSetup] ⚠️ No Camera component found on PlayerCameraObj");
+            return;
+        }
+
+        var brain = cam.GetComponent<CinemachineBrain>() ?? cam.gameObject.AddComponent<CinemachineBrain>();
+        cam.enabled = false;
+        cam.enabled = true;
+        cam.gameObject.tag = "MainCamera";
+        brain.enabled = true;
+
+        Debug.Log($"[PlayerCameraSetup] ✅ Local CinemachineBrain activated for {cam.name}");
+    }
+
+    private void SetupCinemachineTarget()
+    {
+        var cineCam = playerCameraObj.GetComponent<CinemachineCamera>();
+        if (cineCam != null && cameraTarget != null)
+        {
+            cineCam.Follow = cameraTarget;
+            cineCam.LookAt = cameraTarget;
+        }
+    }
+
+    private void RegisterCameraWithManager()
+    {
+        var cineCam = playerCameraObj.GetComponent<CinemachineCamera>();
+        if (CameraManager.Instance != null && cineCam != null)
+        {
+            CameraManager.Instance.UnregisterAllOwnedBy(OwnerClientId);
+            CameraManager.Instance.RegisterCamera(cineCam, OwnerClientId);
+        }
+    }
+
+    private void UnregisterCamera()
     {
         if (CameraManager.Instance != null && playerCameraObj != null)
         {
@@ -177,26 +226,5 @@ public class PlayerCameraSetup : NetworkBehaviour
             if (cineCam != null)
                 CameraManager.Instance.UnregisterCamera(cineCam);
         }
-
-        SceneManager.sceneLoaded -= OnSceneLoaded;
-
-        if (NetworkManager.Singleton != null)
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-
-        isCameraActive = false;
-        hasActivatedCamera = false;
     }
-
-    public override void OnGainedOwnership()
-    {
-        base.OnGainedOwnership();
-
-        if (IsLocalPlayer)
-        {
-            Debug.Log($"[PlayerCameraSetup] 🎥 Gained ownership for client {OwnerClientId}, initializing camera...");
-            StopAllCoroutines();
-            StartCoroutine(InitCameraDelayed());
-        }
-    }
-
 }

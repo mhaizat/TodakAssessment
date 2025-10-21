@@ -6,6 +6,9 @@ using System.Collections.Generic;
 [RequireComponent(typeof(Camera))]
 public class SpectatorCamera : MonoBehaviour
 {
+    // -------------------------
+    // CAMERA SETTINGS
+    // -------------------------
     [Header("Movement Settings")]
     public float moveSpeed = 10f;
 
@@ -16,73 +19,38 @@ public class SpectatorCamera : MonoBehaviour
     private int targetIndex = 0;
     private Transform targetPlayer;
 
-    // --- Replay ---
+    // -------------------------
+    // REPLAY SYSTEM
+    // -------------------------
     private ReplayManager replayManager;
     private ReplayControls replayInput;
     private bool isRecording = false;
 
-    // -------------------- UNITY LIFECYCLE --------------------
+    // -------------------------
+    // UNITY LIFECYCLE
+    // -------------------------
     private void Awake()
     {
         camTransform = transform;
 
-        // Initialize input early
+        // Initialize input
         replayInput = new ReplayControls();
 
-        // Try to find ReplayManager in scene
+        // Find ReplayManager in the scene
         replayManager = FindFirstObjectByType<ReplayManager>();
-
         if (replayManager == null)
-            Debug.LogWarning("[SpectatorCamera] ReplayManager not found in scene. Recording will be disabled until found.");
+            Debug.LogWarning("[SpectatorCamera] ReplayManager not found in scene. Recording disabled until found.");
     }
 
     private void OnEnable()
     {
         replayInput.Enable();
 
-        // Toggle Record (R key or assigned button)
-        replayInput.Replay.RecordToggle.performed += _ =>
-        {
-            if (replayManager == null)
-            {
-                replayManager = FindFirstObjectByType<ReplayManager>();
-                if (replayManager == null)
-                {
-                    Debug.LogWarning("[SpectatorCamera] No ReplayManager found, cannot record.");
-                    return;
-                }
-            }
+        // Record toggle (R key)
+        replayInput.Replay.RecordToggle.performed += _ => ToggleRecording();
 
-            if (!isRecording)
-            {
-                replayManager.StartRecording();
-                Debug.Log("🎥 Started recording gameplay.");
-            }
-            else
-            {
-                replayManager.StopRecording();
-                Debug.Log("⏹️ Stopped recording gameplay.");
-            }
-
-            isRecording = !isRecording;
-        };
-
-        // Playback (T key or assigned button)
-        replayInput.Replay.Playback.performed += _ =>
-        {
-            if (replayManager == null)
-            {
-                replayManager = FindFirstObjectByType<ReplayManager>();
-                if (replayManager == null)
-                {
-                    Debug.LogWarning("[SpectatorCamera] No ReplayManager found, cannot start playback.");
-                    return;
-                }
-            }
-
-            replayManager.StartPlayback();
-            Debug.Log("▶️ Started playback.");
-        };
+        // Playback (T key)
+        replayInput.Replay.Playback.performed += _ => StartPlayback();
     }
 
     private void OnDisable()
@@ -90,48 +58,51 @@ public class SpectatorCamera : MonoBehaviour
         replayInput.Disable();
     }
 
-    // -------------------- MOVEMENT --------------------
     private void Update()
     {
         if (followMode && targetPlayer != null)
         {
-            camTransform.position = targetPlayer.position + new Vector3(0, 15f, -15f);
-            camTransform.LookAt(targetPlayer);
+            FollowTarget();
         }
         else
         {
-            Vector3 forward = camTransform.forward;
-            Vector3 right = camTransform.right;
-            forward.y = 0f;
-            right.y = 0f;
-            forward.Normalize();
-            right.Normalize();
-
-            Vector3 move = (forward * moveInput.y + right * moveInput.x) * moveSpeed * Time.deltaTime;
-            camTransform.position += move;
+            FreeMove();
         }
     }
 
-    // -------------------- INPUT HANDLERS --------------------
-    public void OnMove(InputAction.CallbackContext context)
+    // -------------------------
+    // CAMERA MOVEMENT
+    // -------------------------
+    private void FreeMove()
     {
-        moveInput = context.ReadValue<Vector2>();
+        Vector3 forward = camTransform.forward;
+        Vector3 right = camTransform.right;
+        forward.y = 0f;
+        right.y = 0f;
+        forward.Normalize();
+        right.Normalize();
+
+        Vector3 move = (forward * moveInput.y + right * moveInput.x) * moveSpeed * Time.deltaTime;
+        camTransform.position += move;
     }
+
+    private void FollowTarget()
+    {
+        camTransform.position = targetPlayer.position + new Vector3(0, 15f, -15f);
+        camTransform.LookAt(targetPlayer);
+    }
+
+    // -------------------------
+    // INPUT HANDLERS
+    // -------------------------
+    public void OnMove(InputAction.CallbackContext context) => moveInput = context.ReadValue<Vector2>();
 
     public void OnToggleFollow(InputAction.CallbackContext context)
     {
         if (!context.performed) return;
 
         followMode = !followMode;
-
-        if (followMode)
-        {
-            SetTargetPlayer(0);
-        }
-        else
-        {
-            targetPlayer = null;
-        }
+        targetPlayer = followMode ? GetTargetPlayer(0) : null;
     }
 
     public void OnNextPlayer(InputAction.CallbackContext context)
@@ -142,17 +113,64 @@ public class SpectatorCamera : MonoBehaviour
         if (players.Count == 0) return;
 
         targetIndex = (targetIndex + 1) % players.Count;
-        SetTargetPlayer(targetIndex);
+        targetPlayer = GetTargetPlayer(targetIndex);
     }
 
-    // -------------------- UTILITY --------------------
-    private void SetTargetPlayer(int index)
+    // -------------------------
+    // REPLAY FUNCTIONS
+    // -------------------------
+    private void ToggleRecording()
+    {
+        if (replayManager == null)
+        {
+            replayManager = FindFirstObjectByType<ReplayManager>();
+            if (replayManager == null)
+            {
+                Debug.LogWarning("[SpectatorCamera] No ReplayManager found, cannot record.");
+                return;
+            }
+        }
+
+        if (!isRecording)
+        {
+            replayManager.StartRecording();
+            Debug.Log("🎥 Started recording gameplay.");
+        }
+        else
+        {
+            replayManager.StopRecording();
+            Debug.Log("⏹️ Stopped recording gameplay.");
+        }
+
+        isRecording = !isRecording;
+    }
+
+    private void StartPlayback()
+    {
+        if (replayManager == null)
+        {
+            replayManager = FindFirstObjectByType<ReplayManager>();
+            if (replayManager == null)
+            {
+                Debug.LogWarning("[SpectatorCamera] No ReplayManager found, cannot start playback.");
+                return;
+            }
+        }
+
+        replayManager.StartPlayback();
+        Debug.Log("▶️ Started playback.");
+    }
+
+    // -------------------------
+    // PLAYER TARGETING / UTILITY
+    // -------------------------
+    private Transform GetTargetPlayer(int index)
     {
         var players = GetConnectedPlayers();
-        if (players.Count == 0) return;
+        if (players.Count == 0) return null;
 
         targetIndex = Mathf.Clamp(index, 0, players.Count - 1);
-        targetPlayer = players[targetIndex];
+        return players[targetIndex];
     }
 
     private List<Transform> GetConnectedPlayers()

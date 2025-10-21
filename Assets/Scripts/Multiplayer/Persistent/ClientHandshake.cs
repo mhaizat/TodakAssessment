@@ -2,11 +2,16 @@
 using Unity.Netcode;
 using System;
 
+/// <summary>
+/// Handles client handshake with the server by sending a PlayerJoinMessage upon connection.
+/// Can optionally join as a spectator automatically.
+/// </summary>
 public class ClientHandshake : MonoBehaviour
 {
     [Tooltip("If true, client will join as a spectator automatically.")]
     [SerializeField] private bool joinAsSpectator = false;
 
+    // -------------------- UNITY LIFECYCLE --------------------
     private void Start()
     {
         // Only run this on clients (not host)
@@ -23,8 +28,10 @@ public class ClientHandshake : MonoBehaviour
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
     }
 
+    // -------------------- NETWORK CALLBACK --------------------
     private void OnClientConnected(ulong clientId)
     {
+        // Only send join for the local client
         if (clientId != NetworkManager.Singleton.LocalClientId) return;
 
         SendPlayerJoin(joinAsSpectator);
@@ -33,6 +40,10 @@ public class ClientHandshake : MonoBehaviour
         NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
     }
 
+    // -------------------- PRIVATE HELPERS --------------------
+    /// <summary>
+    /// Sends join immediately if the client is already connected when this script starts.
+    /// </summary>
     private void TrySendJoinImmediately()
     {
         if (NetworkManager.Singleton.IsClient &&
@@ -44,6 +55,9 @@ public class ClientHandshake : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Sends a PlayerJoinMessage to the server and updates the local LobbyManager.
+    /// </summary>
     private void SendPlayerJoin(bool asSpectator)
     {
         if (!NetworkManager.Singleton.IsClient) return;
@@ -63,13 +77,15 @@ public class ClientHandshake : MonoBehaviour
 
         Debug.Log($"[ClientHandshake] ✅ Sent PlayerJoinMessage with PersistentID: {persistentId}, Spectator={asSpectator}");
 
-        // Immediately inform LobbyManager to set role locally
+        // Immediately update the local LobbyManager role
         if (LobbyManager.Instance != null)
         {
-            LobbyManager.Instance.AddPlayerInternal(NetworkManager.Singleton.LocalClientId,
-                                                    persistentId,
-                                                    reconnect: false,
-                                                    isSpectator: asSpectator);
+            LobbyManager.Instance.AddPlayerInternal(
+                NetworkManager.Singleton.LocalClientId,
+                persistentId,
+                reconnect: false,
+                isSpectator: asSpectator
+            );
         }
     }
 }
