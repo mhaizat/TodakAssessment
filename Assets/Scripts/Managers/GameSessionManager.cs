@@ -57,22 +57,19 @@ public class GameSessionManager : NetworkBehaviour
 
     public void SpawnOrRestorePlayer(LobbyManager.PlayerData pdata, GameObject prefab = null, int spawnIndex = 0)
     {
-        if (!IsServer) return;
+        if (!IsServer) return; // Only server handles normal players
 
-        Debug.Log($"[GameSessionManager] === SpawnOrRestorePlayer() called for UniqueId={pdata.PlayerUniqueId}, ClientId={pdata.ClientId}, IsConnected={pdata.IsConnected}");
+        if (pdata.IsSpectator)
+            return; // Spectators are local-only, skip server spawn
 
-        // 1️⃣ Skip duplicates
+        // Skip duplicates
         if (pdata.PlayerObject != null && pdata.PlayerObject.TryGetComponent(out NetworkObject existingNetObj))
         {
             if (existingNetObj.IsSpawned)
             {
-                Debug.Log($"[GameSessionManager] Player {pdata.PlayerUniqueId} already has a spawned object. Skipping duplicate spawn.");
-
-                // Restore ownership if reconnecting
                 if (pdata.IsConnected && existingNetObj.OwnerClientId != pdata.ClientId)
                 {
                     existingNetObj.ChangeOwnership(pdata.ClientId);
-                    Debug.Log($"[GameSessionManager] Ownership reassigned to {pdata.ClientId}");
                 }
 
                 var move = pdata.PlayerObject.GetComponent<PlayerMovement>();
@@ -81,9 +78,9 @@ public class GameSessionManager : NetworkBehaviour
             }
         }
 
+        // Load prefab if missing
         if (prefab == null)
             prefab = Resources.Load<GameObject>(PlayerPrefabPath);
-
         if (prefab == null)
         {
             Debug.LogError($"[GameSessionManager] Missing prefab at path {PlayerPrefabPath}");
@@ -98,15 +95,9 @@ public class GameSessionManager : NetworkBehaviour
         var netObj = playerObj.GetComponent<NetworkObject>();
 
         if (pdata.IsConnected)
-        {
             netObj.SpawnAsPlayerObject(pdata.ClientId);
-            Debug.Log($"[GameSessionManager] Spawned player for ClientId={pdata.ClientId} (connected)");
-        }
         else
-        {
-            netObj.Spawn();
-            Debug.Log($"[GameSessionManager] Spawned placeholder for disconnected ClientId={pdata.ClientId}");
-        }
+            netObj.Spawn(); // placeholder for disconnected player
 
         pdata.PlayerObject = playerObj;
         LobbyManager.Instance.playersByUniqueId[pdata.PlayerUniqueId] = pdata;
@@ -115,4 +106,6 @@ public class GameSessionManager : NetworkBehaviour
         if (controller != null)
             controller.enabled = pdata.IsConnected;
     }
+
+
 }

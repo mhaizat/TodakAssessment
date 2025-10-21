@@ -1,7 +1,7 @@
-﻿// LobbyManager.cs
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
@@ -18,6 +18,7 @@ public class LobbyManager : NetworkBehaviour
         public GameObject PlayerObject;
         public bool IsConnected;
         public bool IsReady;
+        public bool IsSpectator; // true if this client is a spectator
     }
 
     public static LobbyManager Instance;
@@ -30,6 +31,7 @@ public class LobbyManager : NetworkBehaviour
     [SerializeField][Range(2, 10)] private int MaxPlayers = 5;
 
     private const string gameplaySceneName = "Game";
+    public bool IsSpectator;
 
     // Tracks local client's ready state
     private bool currentReadyState = false;
@@ -43,6 +45,49 @@ public class LobbyManager : NetworkBehaviour
         }
         Instance = this;
     }
+
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestSetRoleServerRpc(ulong clientId, bool isSpectator)
+    {
+        if (!clientIdToUniqueId.TryGetValue(clientId, out var uniqueId)) return;
+        if (!playersByUniqueId.TryGetValue(uniqueId, out var pdata)) return;
+
+        pdata.IsSpectator = isSpectator;
+        playersByUniqueId[uniqueId] = pdata;
+
+        Debug.Log($"[LobbyManager] Player {uniqueId} role: {(isSpectator ? "Spectator" : "Player")}");
+        BroadcastLobbyUpdate();
+    }
+
+    public void SetLocalPlayerSpectator(bool isSpectator)
+    {
+        // Tell server about role
+        RequestSetRoleServerRpc(NetworkManager.Singleton.LocalClientId, isSpectator);
+
+        // Only spawn camera if player chose spectator AND game scene is loaded
+        if (isSpectator)
+        {
+            if (SceneManager.GetActiveScene().name == "Game")
+            {
+                SpawnLocalSpectatorCamera();
+            }
+            else
+            {
+                // Wait until game scene loads
+                SceneManager.sceneLoaded += OnGameSceneLoadedSpawnCamera;
+            }
+        }
+    }
+
+    private void OnGameSceneLoadedSpawnCamera(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name != "Game") return;
+
+        SceneManager.sceneLoaded -= OnGameSceneLoadedSpawnCamera;
+        SpawnLocalSpectatorCamera();
+    }
+
+
 
     public void StartGame()
     {
@@ -65,7 +110,7 @@ public class LobbyManager : NetworkBehaviour
         );
 
         // Register host and mark as ready automatically
-        string hostUniqueId = System.Guid.NewGuid().ToString();
+        string hostUniqueId = Guid.NewGuid().ToString();
         AddPlayerInternal(NetworkManager.Singleton.LocalClientId, hostUniqueId);
 
         // Set host as ready
@@ -108,7 +153,7 @@ public class LobbyManager : NetworkBehaviour
         BroadcastLobbyUpdate();
     }
 
-    private void AddPlayerInternal(ulong clientId, string uniqueId, bool reconnect = false)
+    public void AddPlayerInternal(ulong clientId, string uniqueId, bool reconnect = false, bool isSpectator = false)
     {
         if (!IsServer) return;
 
@@ -116,38 +161,13 @@ public class LobbyManager : NetworkBehaviour
         {
             existingPlayer.ClientId = clientId;
             existingPlayer.IsConnected = true;
+            existingPlayer.IsSpectator = isSpectator; // update role if reconnecting
             playersByUniqueId[uniqueId] = existingPlayer;
             clientIdToUniqueId[clientId] = uniqueId;
 
-            Debug.Log($"[LobbyManager] Player {uniqueId} reconnected/resumed (ClientId {clientId})");
+            Debug.Log($"[LobbyManager] Player {uniqueId} reconnected/resumed (ClientId {clientId}), Spectator={isSpectator}");
 
-            if (existingPlayer.PlayerObject != null)
-            {
-                var netObj = existingPlayer.PlayerObject.GetComponent<NetworkObject>();
-                if (netObj != null && netObj.IsSpawned)
-                {
-                    if (existingPlayer.IsConnected && clientId != NetworkManager.Singleton.LocalClientId)
-                    {
-                        netObj.ChangeOwnership(clientId);
-                        Debug.Log($"[LobbyManager] Reassigned ownership of player object to ClientId {clientId}");
-                    }
-
-                    var controller = existingPlayer.PlayerObject.GetComponent<PlayerMovement>();
-                    if (controller != null)
-                        controller.enabled = true;
-                }
-                else
-                {
-                    Debug.LogWarning($"[LobbyManager] Player object missing for {uniqueId}, respawning...");
-                    GameSessionManager.Instance?.SpawnOrRestorePlayer(existingPlayer);
-                }
-            }
-            else
-            {
-                Debug.LogWarning($"[LobbyManager] No existing player object for {uniqueId}, spawning new one...");
-                GameSessionManager.Instance?.SpawnOrRestorePlayer(existingPlayer);
-            }
-
+            GameSessionManager.Instance?.SpawnOrRestorePlayer(existingPlayer);
             BroadcastLobbyUpdate();
             return;
         }
@@ -159,17 +179,61 @@ public class LobbyManager : NetworkBehaviour
             PlayerUniqueId = uniqueId,
             IsConnected = true,
             PlayerObject = null,
-            IsReady = false
+            IsReady = false,
+            IsSpectator = isSpectator // **use desired role**
         };
+
         playersByUniqueId[uniqueId] = pdata;
         clientIdToUniqueId[clientId] = uniqueId;
 
-        Debug.Log($"[LobbyManager] New player {uniqueId} added (ClientId {clientId})");
+        Debug.Log($"[LobbyManager] New player {uniqueId} added (ClientId {clientId}), Spectator={isSpectator}");
 
         GameSessionManager.Instance?.SpawnOrRestorePlayer(pdata);
 
         BroadcastLobbyUpdate();
+
+        // Spawn local spectator camera immediately if this client is a spectator
+        if (pdata.IsSpectator && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            SpawnLocalSpectatorCamera();
+        }
     }
+
+    private void SpawnLocalSpectatorCamera()
+    {
+        // Prevent multiple spawns
+        var pdata = playersByUniqueId.Values.FirstOrDefault(p => p.ClientId == NetworkManager.Singleton.LocalClientId);
+        if (pdata != null && pdata.PlayerObject != null)
+            return;
+
+        GameObject specCamPrefab = Resources.Load<GameObject>("SpectatorCamera");
+        if (specCamPrefab == null)
+        {
+            Debug.LogError("[LobbyManager] SpectatorCamera prefab missing in Resources!");
+            return;
+        }
+
+        GameObject camObj = Instantiate(specCamPrefab);
+        camObj.name = "LocalSpectatorCamera";
+
+        // Disable the existing player camera if it exists
+        var mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            mainCam.gameObject.SetActive(false);
+        }
+
+        // Update local player data
+        if (pdata != null)
+        {
+            pdata.PlayerObject = camObj;
+            playersByUniqueId[pdata.PlayerUniqueId] = pdata;
+        }
+
+        Debug.Log("[LobbyManager] Spawned local spectator camera for this client.");
+    }
+
+
 
     private void OnClientDisconnected(ulong clientId)
     {
@@ -216,8 +280,12 @@ public class LobbyManager : NetworkBehaviour
             {
                 var pdata = playerList[i];
                 string status = pdata.IsConnected ? "Connected" : "Disconnected";
-                string ready = pdata.IsReady ? "Ready" : "Not Ready";
-                slotData.Add($"Player {i + 1} ({pdata.PlayerUniqueId}) [{status}, {ready}]");
+
+                // Spectators are always "Ready" visually
+                string ready = pdata.IsSpectator ? "Ready" : (pdata.IsReady ? "Ready" : "Not Ready");
+                string role = pdata.IsSpectator ? "Spectator" : "Player";
+
+                slotData.Add($"Player {i + 1} ({pdata.PlayerUniqueId}) [{role}, {status}, {ready}]");
             }
             else
             {
@@ -227,6 +295,7 @@ public class LobbyManager : NetworkBehaviour
 
         return slotData;
     }
+
 
     public void BroadcastLobbyUpdate()
     {
@@ -297,7 +366,6 @@ public class LobbyManager : NetworkBehaviour
         BroadcastLobbyUpdate();
     }
 
-    // Called when host presses Start Game
     public void TryStartGame()
     {
         if (!IsServer) return;
@@ -314,18 +382,24 @@ public class LobbyManager : NetworkBehaviour
 
     private bool AllPlayersReady()
     {
-        int connectedCount = 0;
+        int playerCount = 0;
         foreach (var pdata in playersByUniqueId.Values)
         {
-            if (!pdata.IsConnected) continue;
-            connectedCount++;
-
+            if (!pdata.IsConnected || pdata.IsSpectator) continue; // ignore spectators
+            playerCount++;
             if (!pdata.IsReady)
                 return false;
         }
 
-        // Require at least 2 connected players
-        return connectedCount >= 2;
+        return playerCount >= 1; // at least 1 real player required
+    }
+
+
+
+    [ClientRpc]
+    public void SyncRoleClientRpc(bool isSpectator, ClientRpcParams rpcParams = default)
+    {
+        LobbyUI.Instance?.SetRoleUI(isSpectator);
     }
 
 
@@ -339,39 +413,12 @@ public class LobbyManager : NetworkBehaviour
     {
         if (!NetworkManager.Singleton.IsClient) return;
 
+        if (IsSpectator) return; // spectators are always considered ready
+
         bool newReadyState = !currentReadyState;
         currentReadyState = newReadyState;
 
         RequestSetReadyServerRpc(NetworkManager.Singleton.LocalClientId, newReadyState);
     }
 
-    public bool AllConnectedPlayersReady()
-    {
-        foreach (var pdata in playersByUniqueId.Values)
-        {
-            if (pdata.IsConnected && !pdata.IsReady)
-                return false;
-        }
-        return true;
-    }
-
-    public bool CanStartGame()
-    {
-        if (!IsServer) return false;
-
-        // Must have at least 2 connected players
-        int connectedPlayers = 0;
-        foreach (var pdata in playersByUniqueId.Values)
-            if (pdata.IsConnected) connectedPlayers++;
-
-        if (connectedPlayers < 2)
-            return false;
-
-        // All connected players must be ready
-        foreach (var pdata in playersByUniqueId.Values)
-            if (pdata.IsConnected && !pdata.IsReady)
-                return false;
-
-        return true;
-    }
 }

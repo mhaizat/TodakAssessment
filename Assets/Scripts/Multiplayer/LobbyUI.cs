@@ -32,6 +32,11 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI codeText;
     [SerializeField] private Button readyButton;
 
+    [Header("Role Selection")]
+    [SerializeField] private Button playerButton;
+    [SerializeField] private Button spectatorButton;
+    [SerializeField] private TextMeshProUGUI roleText; // optional display
+
     [SerializeField] private TextMeshProUGUI statusText;
 
     private bool currentReadyState = false;
@@ -52,10 +57,31 @@ public class LobbyUI : MonoBehaviour
         readyButton.gameObject.SetActive(false);
     }
 
+    public void OnSelectPlayerRole(bool isSpectator)
+    {
+        // Send the selection to the server
+        LobbyManager.Instance.SetLocalPlayerSpectator(isSpectator);
+
+        // Update UI
+        if (roleText != null)
+            roleText.text = isSpectator ? "Spectator" : "Player";
+
+        // Highlight buttons: selected role non-interactable
+        playerButton.interactable = isSpectator;
+        spectatorButton.interactable = !isSpectator;
+
+        // Optionally disable ready button for spectators
+        if (readyButton != null)
+            readyButton.interactable = !isSpectator;
+    }
+
     private IEnumerator Start()
     {
         // Wait until NetworkManager exists
         yield return new WaitUntil(() => NetworkManager.Singleton != null);
+
+        // Wait until LobbyManager exists
+        yield return new WaitUntil(() => LobbyManager.Instance != null);
 
         // Wait until host or client actually starts
         yield return new WaitUntil(() =>
@@ -65,8 +91,22 @@ public class LobbyUI : MonoBehaviour
         startButton.gameObject.SetActive(isHost);
         readyButton.gameObject.SetActive(!isHost);
 
+        // Default role = Player
+        OnSelectPlayerRole(false);
+
         UpdateReadyButtonText();
     }
+
+    public void SetRoleUI(bool isSpectator)
+    {
+        // Update buttons and text without sending to server
+        if (roleText != null)
+            roleText.text = isSpectator ? "Spectator" : "Player";
+
+        playerButton.interactable = isSpectator;
+        spectatorButton.interactable = !isSpectator;
+    }
+
 
     private void OnDestroy()
     {
@@ -79,24 +119,18 @@ public class LobbyUI : MonoBehaviour
             codeText.text = $"Join Code: {code}";
     }
 
-    public void OnJoinLobbyPanelPressed()
-    {
-        ShowPanel(joinLobbyPanel);
-    }
+    public void OnJoinLobbyPanelPressed() => ShowPanel(joinLobbyPanel);
 
     public void OnExitGamePressed()
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-                    Application.Quit();
+        Application.Quit();
 #endif
     }
 
-    public void OnCancelJoinLobbyPressed()
-    {
-        ShowPanel(menuPanel);
-    }
+    public void OnCancelJoinLobbyPressed() => ShowPanel(menuPanel);
 
     private void OnStartGamePressed()
     {
@@ -127,6 +161,8 @@ public class LobbyUI : MonoBehaviour
         readyButton.onClick.AddListener(OnReadyButtonPressed);
         exitButton.onClick.AddListener(OnExitGamePressed);
         cancelButton.onClick.AddListener(OnCancelJoinLobbyPressed);
+        playerButton.onClick.AddListener(() => OnSelectPlayerRole(false));
+        spectatorButton.onClick.AddListener(() => OnSelectPlayerRole(true));
     }
 
     private async Task HostGame()
@@ -168,8 +204,6 @@ public class LobbyUI : MonoBehaviour
             slotTexts[i].text = i < players.Count ? players[i] : "Empty Slot";
     }
 
-    // ---------------- Ready Button ----------------
-
     private void OnReadyButtonPressed()
     {
         if (!NetworkManager.Singleton.IsClient) return;
@@ -183,7 +217,8 @@ public class LobbyUI : MonoBehaviour
     {
         if (readyButton != null)
         {
-            readyButton.GetComponentInChildren<TextMeshProUGUI>().text = currentReadyState ? "Unready" : "Ready";
+            readyButton.GetComponentInChildren<TextMeshProUGUI>().text =
+                currentReadyState ? "Unready" : "Ready";
         }
     }
 }

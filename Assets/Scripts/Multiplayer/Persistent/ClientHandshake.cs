@@ -1,17 +1,19 @@
 ﻿using UnityEngine;
 using Unity.Netcode;
+using System;
 
 public class ClientHandshake : MonoBehaviour
 {
+    [Tooltip("If true, client will join as a spectator automatically.")]
+    [SerializeField] private bool joinAsSpectator = false;
+
     private void Start()
     {
-        // Only run this on clients, not the host
+        // Only run this on clients (not host)
         if (NetworkManager.Singleton.IsHost) return;
 
-        // Always try immediately (in case we're already connected)
         TrySendJoinImmediately();
 
-        // Then subscribe for future cases
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
     }
 
@@ -25,7 +27,7 @@ public class ClientHandshake : MonoBehaviour
     {
         if (clientId != NetworkManager.Singleton.LocalClientId) return;
 
-        SendPlayerJoin();
+        SendPlayerJoin(joinAsSpectator);
 
         // Unsubscribe to prevent duplicate sends
         NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
@@ -38,11 +40,11 @@ public class ClientHandshake : MonoBehaviour
             !NetworkManager.Singleton.IsHost)
         {
             Debug.Log("[ClientHandshake] Detected already-connected client. Sending join immediately...");
-            SendPlayerJoin();
+            SendPlayerJoin(joinAsSpectator);
         }
     }
 
-    private void SendPlayerJoin()
+    private void SendPlayerJoin(bool asSpectator)
     {
         if (!NetworkManager.Singleton.IsClient) return;
 
@@ -59,6 +61,15 @@ public class ClientHandshake : MonoBehaviour
             );
         }
 
-        Debug.Log($"[ClientHandshake] ✅ Sent PlayerJoinMessage with PersistentID: {persistentId}");
+        Debug.Log($"[ClientHandshake] ✅ Sent PlayerJoinMessage with PersistentID: {persistentId}, Spectator={asSpectator}");
+
+        // Immediately inform LobbyManager to set role locally
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.AddPlayerInternal(NetworkManager.Singleton.LocalClientId,
+                                                    persistentId,
+                                                    reconnect: false,
+                                                    isSpectator: asSpectator);
+        }
     }
 }

@@ -4,9 +4,13 @@ using Unity.Netcode;
 using Unity.Services.Authentication;
 using UnityEngine.UI;
 using TMPro;
+using System.Linq;
 
 public class HUD : MonoBehaviour
 {
+    public Button GetReconnectButton() { return reconnectButton; }
+    public Button GetDisconnectButton() { return disconnectButton; }
+
     [Header("UI References")]
     [SerializeField] private TextMeshProUGUI statusText;
     [SerializeField] private Button reconnectButton;
@@ -17,24 +21,50 @@ public class HUD : MonoBehaviour
     private void Awake()
     {
         disconnectButton.onClick.AddListener(OnDisconnectPressed);
-        reconnectButton.onClick.AddListener(OnReconnectPressed);
+        GetReconnectButton().onClick.AddListener(OnReconnectPressed);
+
+        // Disable buttons initially
+        reconnectButton.gameObject.SetActive(false);
+        disconnectButton.gameObject.SetActive(false);
     }
 
     private void Start()
     {
         playerId = AuthenticationService.Instance.PlayerId;
 
-        // Only show for clients (not host)
-        bool isClientOnly = NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer;
-        reconnectButton.gameObject.SetActive(false && isClientOnly);
-        disconnectButton.gameObject.SetActive(true && isClientOnly);
+        // Always hide first
+        reconnectButton.gameObject.SetActive(false);
+        disconnectButton.gameObject.SetActive(false);
+        statusText.text = "";
 
-        statusText.text = isClientOnly ? "Connected." : "";
-
-        if (isClientOnly)
+        // Only clients (not host) need reconnection logic
+        if (NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
         {
+            StartCoroutine(WaitAndShowButtonsIfControllingPlayer());
+
             NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        }
+    }
+
+    private IEnumerator WaitAndShowButtonsIfControllingPlayer()
+    {
+        // Wait until LobbyManager and local player data are ready
+        while (LobbyManager.Instance == null ||
+               LobbyManager.Instance.playersByUniqueId == null ||
+               !LobbyManager.Instance.playersByUniqueId.ContainsKey(AuthenticationService.Instance.PlayerId))
+        {
+            yield return null;
+        }
+
+        var pdata = LobbyManager.Instance.playersByUniqueId[AuthenticationService.Instance.PlayerId];
+
+        // Only show buttons if this client is not a spectator
+        if (!pdata.IsSpectator)
+        {
+            reconnectButton.gameObject.SetActive(true);
+            disconnectButton.gameObject.SetActive(true);
+            statusText.text = "Connected.";
         }
     }
 
@@ -46,7 +76,6 @@ public class HUD : MonoBehaviour
             NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
         }
     }
-
 
     // ------------------------------
     // UI BUTTON HANDLERS
@@ -63,7 +92,7 @@ public class HUD : MonoBehaviour
     {
         Debug.Log("[HUDReconnection] Attempting to reconnect...");
         statusText.text = "Reconnecting...";
-        reconnectButton.gameObject.SetActive(false);
+        GetReconnectButton().gameObject.SetActive(false);
 
         NetworkManager.Singleton.StartClient();
     }
@@ -79,7 +108,7 @@ public class HUD : MonoBehaviour
 
         SendPlayerJoinMessage(playerId);
 
-        reconnectButton.gameObject.SetActive(false);
+        GetReconnectButton().gameObject.SetActive(false);
         disconnectButton.gameObject.SetActive(true);
     }
 
@@ -88,7 +117,7 @@ public class HUD : MonoBehaviour
         Debug.Log("[HUDReconnection] Client disconnected.");
         statusText.text = "Disconnected.";
 
-        reconnectButton.gameObject.SetActive(true);
+        GetReconnectButton().gameObject.SetActive(true);
         disconnectButton.gameObject.SetActive(false);
     }
 
@@ -105,7 +134,7 @@ public class HUD : MonoBehaviour
 
         Debug.Log("[HUDReconnection] Shutdown complete, client can reconnect now.");
         statusText.text = "Disconnected. You can reconnect.";
-        reconnectButton.gameObject.SetActive(true);
+        GetReconnectButton().gameObject.SetActive(true);
         disconnectButton.gameObject.SetActive(false);
     }
 
