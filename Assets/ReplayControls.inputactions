@@ -1,0 +1,55 @@
+{
+    "version": 1,
+    "name": "ReplayControls",
+    "maps": [
+        {
+            "name": "Replay",
+            "id": "44a1b085-4250-4753-876a-4793ee23bc0a",
+            "actions": [
+                {
+                    "name": "RecordToggle",
+                    "type": "Button",
+                    "id": "59d2ba51-6446-4fb6-87ef-507d5a121ec4",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Playback",
+                    "type": "Button",
+                    "id": "dc557b26-febf-4f01-b7e3-11944f41b6c1",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "b6d132e5-3c62-4ac4-b5e0-12d4d6fb2d7b",
+                    "path": "<Keyboard>/r",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RecordToggle",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "092b0b74-ef77-4fc7-b074-f696de07a20a",
+                    "path": "<Keyboard>/t",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Playback",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}

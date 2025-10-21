@@ -1,0 +1,241 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ReplayManager : MonoBehaviour
+{
+    public static ReplayManager Instance { get; private set; }
+
+    [Header("Ghost Settings")]
+    [SerializeField] private GameObject ghostPrefab;
+
+    private bool isRecording = false;
+    private bool isPlayingBack = false;
+
+    private readonly List<ReplayFrame> frames = new();
+    private readonly List<GameObject> ghostInstances = new();
+    private readonly Dictionary<string, GameObject> ghostMap = new();
+
+    private float playbackTime = 0f;
+    private float startTime = 0f;
+    private float playbackSpeed = 1f;
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+
+    private void Update()
+    {
+        if (isRecording)
+            RecordAllPlayers();
+        else if (isPlayingBack)
+            PlaybackUpdate();
+    }
+
+    // ------------------------------------------------------------
+    // RECORDING
+    // ------------------------------------------------------------
+    private void RecordAllPlayers()
+    {
+        var players = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+        List<TransformSnapshot> snapshots = new();
+
+        foreach (var player in players)
+        {
+            string playerId = player.name;
+            snapshots.Add(new TransformSnapshot(playerId, player.transform));
+        }
+
+        float timestamp = Time.time - startTime;
+        frames.Add(new ReplayFrame(timestamp, snapshots));
+    }
+
+    public void StartRecording()
+    {
+        isRecording = true;
+        isPlayingBack = false;
+        frames.Clear();
+        startTime = Time.time;
+
+        Debug.Log("[ReplayManager] Recording started.");
+    }
+
+    public void StopRecording()
+    {
+        isRecording = false;
+        Debug.Log($"[ReplayManager] Recording stopped. Total frames: {frames.Count}");
+    }
+
+    // ------------------------------------------------------------
+    // PLAYBACK
+    // ------------------------------------------------------------
+    public void StartPlayback()
+    {
+        if (frames.Count == 0)
+        {
+            Debug.LogWarning("[ReplayManager] No frames to play back!");
+            return;
+        }
+
+        isRecording = false;
+        isPlayingBack = true;
+        playbackTime = 0f;
+
+        SpawnGhosts();
+
+        Debug.Log("[ReplayManager] Ghost playback started.");
+    }
+
+    public void StopPlayback()
+    {
+        if (!isPlayingBack) return;
+
+        isPlayingBack = false;
+        ClearGhosts();
+
+        Debug.Log("[ReplayManager] Playback stopped and ghosts cleared.");
+    }
+
+    private void PlaybackUpdate()
+    {
+        if (frames.Count < 2) return;
+
+        playbackTime += Time.deltaTime * playbackSpeed;
+
+        // If reached the end of playback
+        if (playbackTime >= frames[^1].timestamp)
+        {
+            StopPlayback();
+            Debug.Log("[ReplayManager] Playback finished.");
+            return;
+        }
+
+        // Find the two frames to interpolate between
+        int nextIndex = frames.FindIndex(f => f.timestamp > playbackTime);
+        if (nextIndex <= 0) nextIndex = 1;
+
+        var prev = frames[nextIndex - 1];
+        var next = frames[nextIndex];
+
+        float t = Mathf.InverseLerp(prev.timestamp, next.timestamp, playbackTime);
+
+        // Apply interpolated transforms
+        foreach (var snapshotPrev in prev.snapshots)
+        {
+            if (!ghostMap.TryGetValue(snapshotPrev.playerId, out var ghost)) continue;
+
+            var snapshotNext = next.snapshots.Find(s => s.playerId == snapshotPrev.playerId);
+            if (snapshotNext == null) continue;
+
+            Vector3 interpPos = Vector3.Lerp(snapshotPrev.position, snapshotNext.position, t);
+            Quaternion interpRot = Quaternion.Slerp(snapshotPrev.rotation, snapshotNext.rotation, t);
+
+            ghost.transform.SetPositionAndRotation(interpPos, interpRot);
+        }
+    }
+
+    private void SpawnGhosts()
+    {
+        ClearGhosts();
+        ghostMap.Clear();
+
+        var players = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+        foreach (var player in players)
+        {
+            var ghost = Instantiate(ghostPrefab, player.transform.position, player.transform.rotation);
+            ghost.name = $"Ghost_{player.name}";
+
+            Renderer r = ghost.GetComponentInChildren<Renderer>();
+            if (r != null)
+            {
+                Color c = r.material.color;
+                c = new Color(0f, 1f, 1f, 0.5f); // cyan transparent
+                r.material.color = c;
+            }
+
+            ghostInstances.Add(ghost);
+            ghostMap[player.name] = ghost;
+        }
+    }
+
+    private void ClearGhosts()
+    {
+        foreach (var g in ghostInstances)
+        {
+            if (g != null) Destroy(g);
+        }
+        ghostInstances.Clear();
+    }
+
+    // ------------------------------------------------------------
+    // DATA STRUCTURES
+    // ------------------------------------------------------------
+    private class ReplayFrame
+    {
+        public readonly float timestamp;
+        public readonly List<TransformSnapshot> snapshots;
+
+        public ReplayFrame(float timestamp, List<TransformSnapshot> snapshots)
+        {
+            this.timestamp = timestamp;
+            this.snapshots = snapshots;
+        }
+    }
+
+    private class TransformSnapshot
+    {
+        public readonly string playerId;
+        public readonly Vector3 position;
+        public readonly Quaternion rotation;
+
+        public TransformSnapshot(string id, Transform t)
+        {
+            playerId = id;
+            position = t.position;
+            rotation = t.rotation;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // PLAYBACK CONTROLS
+    // ------------------------------------------------------------
+    public void SetPlaybackSpeed(float newSpeed)
+    {
+        playbackSpeed = Mathf.Clamp(newSpeed, 0.1f, 5f);
+        Debug.Log($"[ReplayManager] Playback speed set to {playbackSpeed}x");
+    }
+
+    public void Rewind(float seconds)
+    {
+        if (!isPlayingBack) return;
+        playbackTime = Mathf.Max(0f, playbackTime - seconds);
+        Debug.Log($"[ReplayManager] Rewound {seconds:F1}s (now at {playbackTime:F2}s)");
+    }
+
+    public void FastForward(float seconds)
+    {
+        if (!isPlayingBack) return;
+        playbackTime = Mathf.Min(frames[^1].timestamp, playbackTime + seconds);
+        Debug.Log($"[ReplayManager] Fast-forwarded {seconds:F1}s (now at {playbackTime:F2}s)");
+    }
+
+    public float GetPlaybackProgress()
+    {
+        if (frames.Count == 0) return 0f;
+        return Mathf.Clamp01(playbackTime / frames[^1].timestamp);
+    }
+
+    public void SetPlaybackProgress(float normalizedValue)
+    {
+        if (frames.Count == 0) return;
+        playbackTime = Mathf.Lerp(0f, frames[^1].timestamp, normalizedValue);
+    }
+
+}

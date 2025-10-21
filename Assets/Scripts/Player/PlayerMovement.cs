@@ -46,22 +46,24 @@ public class PlayerMovement : NetworkBehaviour
     {
         if (!IsOwner) return;
 
-        // ----- 1. Read input -----
+        // ---------------------------
+        // 2. MOVEMENT LOGIC
+        // ---------------------------
         Vector2 input = moveAction.action.ReadValue<Vector2>();
         if (input.sqrMagnitude < 0.0001f) return;
 
         float deltaTime = Time.deltaTime;
 
-        // ----- 2. Apply client-side prediction -----
+        // Client-side prediction
         Vector3 move = new Vector3(input.x, 0, input.y) * moveSpeed * deltaTime;
         controller.Move(move);
 
-        // ----- 3. Record input in local buffer -----
+        // Record input for reconciliation
         tickCounter++;
         InputState state = new InputState { input = input, deltaTime = deltaTime, tick = tickCounter };
         inputBuffer.Add(state);
 
-        // ----- 4. Send input to server -----
+        // Send input to server
         SendMovementInputToServerRpc(input, deltaTime, tickCounter);
     }
 
@@ -71,16 +73,13 @@ public class PlayerMovement : NetworkBehaviour
     {
         Vector3 move = new Vector3(input.x, 0, input.y) * moveSpeed * deltaTime;
 
-        // Apply movement on server
         if (TryGetComponent(out CharacterController cc))
         {
             cc.Move(move);
         }
 
-        // Update authoritative position
         serverPosition = transform.position;
 
-        // Send back authoritative position + last processed tick
         UpdateClientPositionClientRpc(serverPosition, tick, rpcParams.Receive.SenderClientId);
     }
 
@@ -90,14 +89,11 @@ public class PlayerMovement : NetworkBehaviour
     {
         if (!IsOwner) return;
 
-        // Step 1: Snap to server position
         transform.position = authoritativePosition;
         serverPosition = authoritativePosition;
 
-        // Step 2: Remove acknowledged inputs from buffer
         inputBuffer.RemoveAll(input => input.tick <= lastProcessedTick);
 
-        // Step 3: Reapply unprocessed inputs
         foreach (var input in inputBuffer)
         {
             Vector3 move = new Vector3(input.input.x, 0, input.input.y) * moveSpeed * input.deltaTime;

@@ -87,8 +87,6 @@ public class LobbyManager : NetworkBehaviour
         SpawnLocalSpectatorCamera();
     }
 
-
-
     public void StartGame()
     {
         if (!IsServer) return;
