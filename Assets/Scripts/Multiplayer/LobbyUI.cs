@@ -6,11 +6,19 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// Singleton manager to handle lobby UI, including role selection, lobby slots, ready states, and panels.
+/// </summary>
 public class LobbyUI : MonoBehaviour
 {
+    // -------------------------
+    // SINGLETON
+    // -------------------------
     public static LobbyUI Instance;
-    private MultiplayerSetup multiplayerSetup;
 
+    // -------------------------
+    // VARIABLES / REFERENCES
+    // -------------------------
     [Header("Panels")]
     [SerializeField] private GameObject menuPanel;
     [SerializeField] private GameObject joinLobbyPanel;
@@ -35,19 +43,28 @@ public class LobbyUI : MonoBehaviour
     [Header("Role Selection")]
     [SerializeField] private Button playerButton;
     [SerializeField] private Button spectatorButton;
-    [SerializeField] private TextMeshProUGUI roleText; // optional display
+    [SerializeField] private TextMeshProUGUI roleText;
 
+    [Header("Status Display")]
     [SerializeField] private TextMeshProUGUI statusText;
 
+    // Runtime / private
+    private MultiplayerSetup multiplayerSetup;
     private bool currentReadyState = false;
 
+    // -------------------------
+    // UNITY LIFECYCLE
+    // -------------------------
     private void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
         Instance = this;
 
         multiplayerSetup = FindFirstObjectByType<MultiplayerSetup>();
-
         LobbyManager.OnSlotsUpdated += UpdateLobbySlots;
 
         SetupButtonListeners();
@@ -57,60 +74,51 @@ public class LobbyUI : MonoBehaviour
         readyButton.gameObject.SetActive(false);
     }
 
-    public void OnSelectPlayerRole(bool isSpectator)
-    {
-        // Send the selection to the server
-        LobbyManager.Instance.SetLocalPlayerSpectator(isSpectator);
-
-        // Update UI
-        if (roleText != null)
-            roleText.text = isSpectator ? "Spectator" : "Player";
-
-        // Highlight buttons: selected role non-interactable
-        playerButton.interactable = isSpectator;
-        spectatorButton.interactable = !isSpectator;
-
-        // Optionally disable ready button for spectators
-        if (readyButton != null)
-            readyButton.interactable = !isSpectator;
-    }
-
     private IEnumerator Start()
     {
-        // Wait until NetworkManager exists
+        // Wait for NetworkManager & LobbyManager
         yield return new WaitUntil(() => NetworkManager.Singleton != null);
-
-        // Wait until LobbyManager exists
         yield return new WaitUntil(() => LobbyManager.Instance != null);
-
-        // Wait until host or client actually starts
         yield return new WaitUntil(() =>
             NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsClient);
 
+        // Setup host/client UI
         bool isHost = NetworkManager.Singleton.IsServer;
         startButton.gameObject.SetActive(isHost);
         readyButton.gameObject.SetActive(!isHost);
 
         // Default role = Player
         OnSelectPlayerRole(false);
-
         UpdateReadyButtonText();
     }
-
-    public void SetRoleUI(bool isSpectator)
-    {
-        // Update buttons and text without sending to server
-        if (roleText != null)
-            roleText.text = isSpectator ? "Spectator" : "Player";
-
-        playerButton.interactable = isSpectator;
-        spectatorButton.interactable = !isSpectator;
-    }
-
 
     private void OnDestroy()
     {
         LobbyManager.OnSlotsUpdated -= UpdateLobbySlots;
+    }
+
+    // -------------------------
+    // PUBLIC METHODS
+    // -------------------------
+    public void OnSelectPlayerRole(bool isSpectator)
+    {
+        // Update server
+        LobbyManager.Instance.SetLocalPlayerSpectator(isSpectator);
+
+        // Update UI
+        roleText.text = isSpectator ? "Spectator" : "Player";
+        playerButton.interactable = isSpectator;
+        spectatorButton.interactable = !isSpectator;
+
+        if (readyButton != null)
+            readyButton.interactable = !isSpectator;
+    }
+
+    public void SetRoleUI(bool isSpectator)
+    {
+        roleText.text = isSpectator ? "Spectator" : "Player";
+        playerButton.interactable = isSpectator;
+        spectatorButton.interactable = !isSpectator;
     }
 
     public void DisplayJoinCode(string code)
@@ -119,39 +127,15 @@ public class LobbyUI : MonoBehaviour
             codeText.text = $"Join Code: {code}";
     }
 
-    public void OnJoinLobbyPanelPressed() => ShowPanel(joinLobbyPanel);
-
-    public void OnExitGamePressed()
+    public void ShowStatus(string message)
     {
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying = false;
-#else
-        Application.Quit();
-#endif
+        if (statusText != null)
+            statusText.text = message;
     }
 
-    public void OnCancelJoinLobbyPressed() => ShowPanel(menuPanel);
-
-    private void OnStartGamePressed()
-    {
-        if (!NetworkManager.Singleton.IsServer)
-        {
-            ShowStatus("Only the host can start the game.");
-            return;
-        }
-
-        LobbyManager.Instance.TryStartGame();
-    }
-
-    private void ShowPanel(GameObject panelToShow)
-    {
-        menuPanel.SetActive(false);
-        joinLobbyPanel.SetActive(false);
-        lobbyPanel.SetActive(false);
-
-        panelToShow?.SetActive(true);
-    }
-
+    // -------------------------
+    // PRIVATE METHODS
+    // -------------------------
     private void SetupButtonListeners()
     {
         hostButton.onClick.AddListener(() => _ = HostGame());
@@ -170,13 +154,12 @@ public class LobbyUI : MonoBehaviour
         ShowStatus("Starting host...");
         await multiplayerSetup.CreateRelay();
         ShowPanel(lobbyPanel);
-
         LobbyManager.Instance?.BroadcastLobbyUpdate();
     }
 
     private async Task JoinGame()
     {
-        var code = joinCodeInput.text.Trim();
+        string code = joinCodeInput.text.Trim();
         if (string.IsNullOrEmpty(code))
         {
             ShowStatus("Please enter a join code.");
@@ -184,7 +167,6 @@ public class LobbyUI : MonoBehaviour
         }
 
         ShowStatus($"Joining with code {code}...");
-
         await multiplayerSetup.JoinRelay(code);
 
         codeText.text = $"Join Code: {code}";
@@ -192,17 +174,28 @@ public class LobbyUI : MonoBehaviour
         ShowStatus("Joined successfully!");
     }
 
-    public void ShowStatus(string message)
+    private void OnStartGamePressed()
     {
-        if (statusText != null)
-            statusText.text = message;
+        if (!NetworkManager.Singleton.IsServer)
+        {
+            ShowStatus("Only the host can start the game.");
+            return;
+        }
+
+        LobbyManager.Instance.TryStartGame();
     }
 
-    private void UpdateLobbySlots(List<string> players)
+    private void OnExitGamePressed()
     {
-        for (int i = 0; i < slotTexts.Count; i++)
-            slotTexts[i].text = i < players.Count ? players[i] : "Empty Slot";
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
+
+    private void OnJoinLobbyPanelPressed() => ShowPanel(joinLobbyPanel);
+    private void OnCancelJoinLobbyPressed() => ShowPanel(menuPanel);
 
     private void OnReadyButtonPressed()
     {
@@ -220,5 +213,20 @@ public class LobbyUI : MonoBehaviour
             readyButton.GetComponentInChildren<TextMeshProUGUI>().text =
                 currentReadyState ? "Unready" : "Ready";
         }
+    }
+
+    private void UpdateLobbySlots(List<string> players)
+    {
+        for (int i = 0; i < slotTexts.Count; i++)
+            slotTexts[i].text = i < players.Count ? players[i] : "Empty Slot";
+    }
+
+    private void ShowPanel(GameObject panelToShow)
+    {
+        menuPanel.SetActive(false);
+        joinLobbyPanel.SetActive(false);
+        lobbyPanel.SetActive(false);
+
+        panelToShow?.SetActive(true);
     }
 }

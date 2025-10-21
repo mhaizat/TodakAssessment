@@ -231,8 +231,6 @@ public class LobbyManager : NetworkBehaviour
         Debug.Log("[LobbyManager] Spawned local spectator camera for this client.");
     }
 
-
-
     private void OnClientDisconnected(ulong clientId)
     {
         if (!IsServer) return;
@@ -294,7 +292,6 @@ public class LobbyManager : NetworkBehaviour
         return slotData;
     }
 
-
     public void BroadcastLobbyUpdate()
     {
         var slotData = GetSlotDisplayData();
@@ -351,7 +348,6 @@ public class LobbyManager : NetworkBehaviour
     }
 
     // ---------------- Ready System ----------------
-
     public void SetPlayerReady(ulong clientId, bool ready)
     {
         if (!clientIdToUniqueId.TryGetValue(clientId, out var uniqueId)) return;
@@ -392,14 +388,11 @@ public class LobbyManager : NetworkBehaviour
         return playerCount >= 1; // at least 1 real player required
     }
 
-
-
     [ClientRpc]
     public void SyncRoleClientRpc(bool isSpectator, ClientRpcParams rpcParams = default)
     {
         LobbyUI.Instance?.SetRoleUI(isSpectator);
     }
-
 
     [ServerRpc(RequireOwnership = false)]
     public void RequestSetReadyServerRpc(ulong clientId, bool ready)
@@ -418,5 +411,4 @@ public class LobbyManager : NetworkBehaviour
 
         RequestSetReadyServerRpc(NetworkManager.Singleton.LocalClientId, newReadyState);
     }
-
 }
