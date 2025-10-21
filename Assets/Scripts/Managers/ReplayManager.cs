@@ -31,7 +31,6 @@ public class ReplayManager : MonoBehaviour
         }
 
         Instance = this;
-        DontDestroyOnLoad(gameObject);
     }
 
     private void Update()
