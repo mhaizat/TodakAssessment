@@ -10,6 +10,7 @@ public class ReplayManager : MonoBehaviour
 
     private bool isRecording = false;
     private bool isPlayingBack = false;
+    private bool isPaused = false;
 
     private readonly List<ReplayFrame> frames = new();
     private readonly List<GameObject> ghostInstances = new();
@@ -18,6 +19,8 @@ public class ReplayManager : MonoBehaviour
     private float playbackTime = 0f;
     private float startTime = 0f;
     private float playbackSpeed = 1f;
+
+    public bool IsPlaying => isPlayingBack && !isPaused;
 
     private void Awake()
     {
@@ -35,7 +38,7 @@ public class ReplayManager : MonoBehaviour
     {
         if (isRecording)
             RecordAllPlayers();
-        else if (isPlayingBack)
+        else if (isPlayingBack && !isPaused)
             PlaybackUpdate();
     }
 
@@ -61,6 +64,7 @@ public class ReplayManager : MonoBehaviour
     {
         isRecording = true;
         isPlayingBack = false;
+        isPaused = false;
         frames.Clear();
         startTime = Time.time;
 
@@ -86,6 +90,7 @@ public class ReplayManager : MonoBehaviour
 
         isRecording = false;
         isPlayingBack = true;
+        isPaused = false;
         playbackTime = 0f;
 
         SpawnGhosts();
@@ -98,9 +103,18 @@ public class ReplayManager : MonoBehaviour
         if (!isPlayingBack) return;
 
         isPlayingBack = false;
+        isPaused = false;
         ClearGhosts();
 
         Debug.Log("[ReplayManager] Playback stopped and ghosts cleared.");
+    }
+
+    public void TogglePause()
+    {
+        if (!isPlayingBack) return;
+
+        isPaused = !isPaused;
+        Debug.Log(isPaused ? "[ReplayManager] Paused playback." : "[ReplayManager] Resumed playback.");
     }
 
     private void PlaybackUpdate()
@@ -109,7 +123,6 @@ public class ReplayManager : MonoBehaviour
 
         playbackTime += Time.deltaTime * playbackSpeed;
 
-        // If reached the end of playback
         if (playbackTime >= frames[^1].timestamp)
         {
             StopPlayback();
@@ -117,16 +130,13 @@ public class ReplayManager : MonoBehaviour
             return;
         }
 
-        // Find the two frames to interpolate between
         int nextIndex = frames.FindIndex(f => f.timestamp > playbackTime);
         if (nextIndex <= 0) nextIndex = 1;
 
         var prev = frames[nextIndex - 1];
         var next = frames[nextIndex];
-
         float t = Mathf.InverseLerp(prev.timestamp, next.timestamp, playbackTime);
 
-        // Apply interpolated transforms
         foreach (var snapshotPrev in prev.snapshots)
         {
             if (!ghostMap.TryGetValue(snapshotPrev.playerId, out var ghost)) continue;
@@ -136,11 +146,13 @@ public class ReplayManager : MonoBehaviour
 
             Vector3 interpPos = Vector3.Lerp(snapshotPrev.position, snapshotNext.position, t);
             Quaternion interpRot = Quaternion.Slerp(snapshotPrev.rotation, snapshotNext.rotation, t);
-
             ghost.transform.SetPositionAndRotation(interpPos, interpRot);
         }
     }
 
+    // ------------------------------------------------------------
+    // GHOST HANDLING
+    // ------------------------------------------------------------
     private void SpawnGhosts()
     {
         ClearGhosts();
@@ -155,9 +167,7 @@ public class ReplayManager : MonoBehaviour
             Renderer r = ghost.GetComponentInChildren<Renderer>();
             if (r != null)
             {
-                Color c = r.material.color;
-                c = new Color(0f, 1f, 1f, 0.5f); // cyan transparent
-                r.material.color = c;
+                r.material.color = new Color(0f, 1f, 1f, 0.5f); // cyan transparent
             }
 
             ghostInstances.Add(ghost);
@@ -175,35 +185,6 @@ public class ReplayManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------
-    // DATA STRUCTURES
-    // ------------------------------------------------------------
-    private class ReplayFrame
-    {
-        public readonly float timestamp;
-        public readonly List<TransformSnapshot> snapshots;
-
-        public ReplayFrame(float timestamp, List<TransformSnapshot> snapshots)
-        {
-            this.timestamp = timestamp;
-            this.snapshots = snapshots;
-        }
-    }
-
-    private class TransformSnapshot
-    {
-        public readonly string playerId;
-        public readonly Vector3 position;
-        public readonly Quaternion rotation;
-
-        public TransformSnapshot(string id, Transform t)
-        {
-            playerId = id;
-            position = t.position;
-            rotation = t.rotation;
-        }
-    }
-
-    // ------------------------------------------------------------
     // PLAYBACK CONTROLS
     // ------------------------------------------------------------
     public void SetPlaybackSpeed(float newSpeed)
@@ -216,14 +197,12 @@ public class ReplayManager : MonoBehaviour
     {
         if (!isPlayingBack) return;
         playbackTime = Mathf.Max(0f, playbackTime - seconds);
-        Debug.Log($"[ReplayManager] Rewound {seconds:F1}s (now at {playbackTime:F2}s)");
     }
 
     public void FastForward(float seconds)
     {
         if (!isPlayingBack) return;
         playbackTime = Mathf.Min(frames[^1].timestamp, playbackTime + seconds);
-        Debug.Log($"[ReplayManager] Fast-forwarded {seconds:F1}s (now at {playbackTime:F2}s)");
     }
 
     public float GetPlaybackProgress()
@@ -232,10 +211,36 @@ public class ReplayManager : MonoBehaviour
         return Mathf.Clamp01(playbackTime / frames[^1].timestamp);
     }
 
-    public void SetPlaybackProgress(float normalizedValue)
+    public void SeekToProgress(float normalizedValue)
     {
         if (frames.Count == 0) return;
         playbackTime = Mathf.Lerp(0f, frames[^1].timestamp, normalizedValue);
     }
 
+    // ------------------------------------------------------------
+    // DATA STRUCTURES
+    // ------------------------------------------------------------
+    private class ReplayFrame
+    {
+        public readonly float timestamp;
+        public readonly List<TransformSnapshot> snapshots;
+        public ReplayFrame(float timestamp, List<TransformSnapshot> snapshots)
+        {
+            this.timestamp = timestamp;
+            this.snapshots = snapshots;
+        }
+    }
+
+    private class TransformSnapshot
+    {
+        public readonly string playerId;
+        public readonly Vector3 position;
+        public readonly Quaternion rotation;
+        public TransformSnapshot(string id, Transform t)
+        {
+            playerId = id;
+            position = t.position;
+            rotation = t.rotation;
+        }
+    }
 }

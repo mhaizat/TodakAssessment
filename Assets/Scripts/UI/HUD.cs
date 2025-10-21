@@ -37,15 +37,42 @@ public class HUD : MonoBehaviour
         disconnectButton.gameObject.SetActive(false);
         statusText.text = "";
 
+        // Wait until LobbyManager is ready and check role
+        StartCoroutine(SetupHUDForRole());
+    }
+
+    private IEnumerator SetupHUDForRole()
+    {
+        // Wait until LobbyManager and local player data are ready
+        while (LobbyManager.Instance == null ||
+               LobbyManager.Instance.playersByUniqueId == null ||
+               !LobbyManager.Instance.playersByUniqueId.ContainsKey(playerId))
+        {
+            yield return null;
+        }
+
+        var pdata = LobbyManager.Instance.playersByUniqueId[playerId];
+
+        // If spectator, disable entire HUD
+        if (pdata.IsSpectator)
+        {
+            gameObject.SetActive(false);
+            yield break;
+        }
+
+        // Only show HUD for non-spectators
+        reconnectButton.gameObject.SetActive(true);
+        disconnectButton.gameObject.SetActive(true);
+        statusText.text = "Connected.";
+
         // Only clients (not host) need reconnection logic
         if (NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
         {
-            StartCoroutine(WaitAndShowButtonsIfControllingPlayer());
-
             NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
         }
     }
+
 
     private IEnumerator WaitAndShowButtonsIfControllingPlayer()
     {
