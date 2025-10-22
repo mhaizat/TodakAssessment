@@ -65,7 +65,7 @@ public class PlayerCameraSetup : NetworkBehaviour
 
         if (IsLocalPlayer)
         {
-            Debug.Log($"[PlayerCameraSetup] 🎥 Gained ownership for client {OwnerClientId}, initializing camera...");
+            Debug.Log($"[PlayerCameraSetup] Gained ownership for client {OwnerClientId}, initializing camera...");
             StopAllCoroutines();
             StartCoroutine(InitCameraDelayed());
         }
@@ -146,7 +146,7 @@ public class PlayerCameraSetup : NetworkBehaviour
         SetupCinemachineTarget();
         RegisterCameraWithManager();
 
-        Debug.Log($"[PlayerCameraSetup] ✅ Local camera fully activated for client {OwnerClientId}");
+        Debug.Log($"[PlayerCameraSetup] Local camera fully activated for client {OwnerClientId}");
     }
 
     private IEnumerator ActivateAfterRootActive()
@@ -175,7 +175,7 @@ public class PlayerCameraSetup : NetworkBehaviour
             if (b.isActiveAndEnabled)
             {
                 b.enabled = false;
-                Debug.Log($"[PlayerCameraSetup] ❌ Disabled old CinemachineBrain on {b.gameObject.name}");
+                Debug.Log($"[PlayerCameraSetup] Disabled old CinemachineBrain on {b.gameObject.name}");
             }
         }
     }
@@ -185,7 +185,7 @@ public class PlayerCameraSetup : NetworkBehaviour
         var cam = playerCameraObj.GetComponent<Camera>();
         if (cam == null)
         {
-            Debug.LogWarning("[PlayerCameraSetup] ⚠️ No Camera component found on PlayerCameraObj");
+            Debug.LogWarning("[PlayerCameraSetup] No Camera component found on PlayerCameraObj");
             return;
         }
 
@@ -195,7 +195,7 @@ public class PlayerCameraSetup : NetworkBehaviour
         cam.gameObject.tag = "MainCamera";
         brain.enabled = true;
 
-        Debug.Log($"[PlayerCameraSetup] ✅ Local CinemachineBrain activated for {cam.name}");
+        Debug.Log($"[PlayerCameraSetup] Local CinemachineBrain activated for {cam.name}");
     }
 
     private void SetupCinemachineTarget()

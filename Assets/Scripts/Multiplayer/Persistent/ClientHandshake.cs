@@ -75,7 +75,7 @@ public class ClientHandshake : MonoBehaviour
             );
         }
 
-        Debug.Log($"[ClientHandshake] ✅ Sent PlayerJoinMessage with PersistentID: {persistentId}, Spectator={asSpectator}");
+        Debug.Log($"[ClientHandshake] Sent PlayerJoinMessage with PersistentID: {persistentId}, Spectator={asSpectator}");
 
         // Immediately update the local LobbyManager role
         if (LobbyManager.Instance != null)

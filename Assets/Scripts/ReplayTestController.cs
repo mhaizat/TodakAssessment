@@ -20,12 +20,12 @@ public class ReplayTestController : MonoBehaviour
             if (!isRecording)
             {
                 replayManager.StartRecording();
-                Debug.Log("🎥 Started recording inputs.");
+                Debug.Log("Started recording inputs.");
             }
             else
             {
                 replayManager.StopRecording();
-                Debug.Log("⏹️ Stopped recording inputs.");
+                Debug.Log("Stopped recording inputs.");
             }
 
             isRecording = !isRecording;
@@ -34,7 +34,7 @@ public class ReplayTestController : MonoBehaviour
         replayInput.Replay.Playback.performed += _ =>
         {
             replayManager.StartPlayback();
-            Debug.Log("▶️ Started playback.");
+            Debug.Log("Started playback.");
         };
     }
 

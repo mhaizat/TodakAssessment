@@ -134,12 +134,12 @@ public class SpectatorCamera : MonoBehaviour
         if (!isRecording)
         {
             replayManager.StartRecording();
-            Debug.Log("🎥 Started recording gameplay.");
+            Debug.Log("Started recording gameplay.");
         }
         else
         {
             replayManager.StopRecording();
-            Debug.Log("⏹️ Stopped recording gameplay.");
+            Debug.Log("Stopped recording gameplay.");
         }
 
         isRecording = !isRecording;
@@ -158,7 +158,7 @@ public class SpectatorCamera : MonoBehaviour
         }
 
         replayManager.StartPlayback();
-        Debug.Log("▶️ Started playback.");
+        Debug.Log("Started playback.");
     }
 
     // -------------------------
